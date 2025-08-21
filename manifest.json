@@ -22,5 +22,9 @@
       "resources": ["lib/*"],
       "matches": ["<all_urls>"]
     }
-  ]
+  ],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' https://cdn.jsdelivr.net; style-src 'self' https://cdn.jsdelivr.net; object-src 'self'"
+  }
 }

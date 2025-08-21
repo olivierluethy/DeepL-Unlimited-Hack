@@ -1,9 +1,16 @@
 window.addEventListener("message", async (event) => {
-  if (event.source !== window || !event.data || event.data.type !== "DEEPL_TRANSLATE") return;
+  if (
+    event.source !== window ||
+    !event.data ||
+    event.data.type !== "DEEPL_TRANSLATE"
+  )
+    return;
 
   const fullText = event.data.payload;
 
-  const maxCounter = document.querySelector("[data-testid='write-character-counter']");
+  const maxCounter = document.querySelector(
+    "[data-testid='write-character-counter']"
+  );
   const maxLength = parseInt(maxCounter?.children[2]?.innerHTML || "2000");
 
   const chunks = splitText(fullText, maxLength);
@@ -17,7 +24,24 @@ window.addEventListener("message", async (event) => {
 
   const finalText = results.join("\n\n");
 
-  downloadResult(finalText);
+  const id = crypto.randomUUID(); // erzeugt eine eindeutige ID
+  const timestamp = new Date().toISOString(); // aktuelles Datum/Zeit im ISO-Format
+
+  const eintrag = {
+    id,
+    timestamp,
+    original: fullText,
+    translated: finalText,
+  };
+
+  chrome.storage.local.get({ verlauf: [] }, (result) => {
+    const verlauf = result.verlauf;
+    verlauf.push(eintrag);
+
+    chrome.storage.local.set({ verlauf }, () => {
+      console.log("Verlaufseintrag gespeichert:", eintrag);
+    });
+  });
 });
 
 function splitText(text, maxLength) {
@@ -38,18 +62,22 @@ function splitText(text, maxLength) {
 }
 
 async function insertAndTranslate(text) {
-  const sourceInput = document.querySelector("[data-testid='translator-source-input'] [role='textbox']");
+  const sourceInput = document.querySelector(
+    "[data-testid='translator-source-input'] [role='textbox']"
+  );
   sourceInput.innerText = "";
 
   const event = new InputEvent("input", { bubbles: true });
   sourceInput.textContent = text;
   sourceInput.dispatchEvent(event);
 
-  await new Promise(r => setTimeout(r, 2500));
+  await new Promise((r) => setTimeout(r, 2500));
 }
 
 async function getTranslatedText() {
-  const targetInput = document.querySelector("[data-testid='translator-target-input'] [role='textbox']");
+  const targetInput = document.querySelector(
+    "[data-testid='translator-target-input'] [role='textbox']"
+  );
   return targetInput?.textContent || "";
 }
 
