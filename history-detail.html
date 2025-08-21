@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Verlauf-Details - DeepL Unlimited</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
+      rel="stylesheet"
+    />
+    <script src="history-detail.js" defer></script>
+    <script src="js/diff.min.js" defer></script>
+
+    <style>
+      .diff-container {
+        font-family: "Courier New", Courier, monospace;
+        font-size: 0.9rem;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+      }
+      .diff-added {
+        background-color: #e6ffed;
+      }
+      .diff-removed {
+        background-color: #ffe6e6;
+        text-decoration: line-through;
+      }
+      .line-number {
+        color: #6b7280;
+        margin-right: 1rem;
+        display: inline-block;
+        width: 2rem;
+        text-align: right;
+      }
+    </style>
+  </head>
+  <body class="bg-gray-100 min-h-screen flex justify-center items-start py-8">
+    <div class="w-full max-w-6xl mx-auto bg-white rounded-lg shadow-lg p-6">
+      <h2 class="text-2xl font-bold text-indigo-600 mb-6">Verlauf-Details</h2>
+      <button
+        id="backBtn"
+        class="mb-6 bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
+      >
+        Zurück
+      </button>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="space-y-4">
+          <div class="border border-gray-200 rounded-md p-4 bg-white">
+            <h5 class="text-lg font-semibold text-gray-800 mb-2">
+              Originaltext
+            </h5>
+            <pre
+              id="originalText"
+              class="text-sm text-gray-700 overflow-auto max-h-[70vh]"
+            ></pre>
+          </div>
+          <div class="border border-gray-200 rounded-md p-4 bg-white">
+            <h5 class="text-lg font-semibold text-gray-800 mb-2">
+              Konvertierter Text
+            </h5>
+            <pre
+              id="translatedText"
+              class="text-sm text-gray-700 overflow-auto max-h-[70vh]"
+            ></pre>
+          </div>
+          <p id="timestamp" class="text-sm text-gray-500"></p>
+        </div>
+        <div class="border border-gray-200 rounded-md p-4 bg-gray-50">
+          <h5 class="text-lg font-semibold text-gray-800 mb-2">Unterschiede</h5>
+          <div
+            id="diffOutput"
+            class="diff-container overflow-auto max-h-[70vh]"
+          ></div>
+          <p id="changeCounter" class="text-sm text-gray-500 mt-2"></p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

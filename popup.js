@@ -74,26 +74,97 @@ document.addEventListener("DOMContentLoaded", () => {
           item.className = "history-entry";
 
           item.innerHTML = `
-            <small class="text-muted">${new Date(
-              entry.timestamp
-            ).toLocaleString()}</small>
-            <div class="mt-2">
-              <strong>Original:</strong>
-              <pre>${sanitize(entry.original)}</pre>
-            </div>
-            <div>
-              <strong>Übersetzt:</strong>
-              <pre>${sanitize(entry.translated)}</pre>
-            </div>
-          `;
+  <small class="text-muted">${new Date(
+    entry.timestamp
+  ).toLocaleString()}</small>
+  <div class="mt-2">
+    <strong>Original:</strong>
+    <pre>${sanitize(entry.original)}</pre>
+  </div>
+  <div>
+    <strong>Konvertiert:</strong>
+    <pre>${sanitize(entry.translated)}</pre>
+  </div>
+  <button class="btn btn-outline-primary btn-sm mt-2" data-id="${
+    entry.id
+  }">Details</button>
+  <div class="dropdown mt-2">
+    <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+      Herunterladen
+    </button>
+    <ul class="dropdown-menu">
+      <li><a class="dropdown-item" href="#" data-id="${
+        entry.id
+      }" data-format="txt">Als TXT</a></li>
+      <li><a class="dropdown-item" href="#" data-id="${
+        entry.id
+      }" data-format="json">Als JSON</a></li>
+      <li><a class="dropdown-item" href="#" data-id="${
+        entry.id
+      }" data-format="csv">Als CSV</a></li>
+    </ul>
+  </div>
+`;
+
+          // Event Listener für Details-Button
+          item
+            .querySelector("button[data-id]")
+            .addEventListener("click", (e) => {
+              const entryId = e.target.getAttribute("data-id");
+              const url =
+                chrome.runtime.getURL("history-detail.html") + `?id=${entryId}`;
+              chrome.tabs.create({ url });
+            });
+
+          // Event Listener für Dropdown-Items
+          item.querySelectorAll(".dropdown-item").forEach((dropdownItem) => {
+            dropdownItem.addEventListener("click", (e) => {
+              e.preventDefault();
+              const entryId = e.target.getAttribute("data-id");
+              const format = e.target.getAttribute("data-format");
+              downloadEntry(entryId, format);
+            });
+          });
 
           historyList.appendChild(item);
         });
     });
   }
 
+  function downloadEntry(entryId, format) {
+    chrome.storage.local.get({ verlauf: [] }, (result) => {
+      const entry = result.verlauf.find((e) => e.id === entryId);
+      if (!entry) return alert("Eintrag nicht gefunden.");
+
+      let content, filename, mimeType;
+      if (format === "txt") {
+        content = `Original: ${entry.original}\n\nKonvertiert: ${entry.translated}`;
+        filename = `translation_${entryId}.txt`;
+        mimeType = "text/plain";
+      } else if (format === "json") {
+        content = JSON.stringify(entry, null, 2);
+        filename = `translation_${entryId}.json`;
+        mimeType = "application/json";
+      } else if (format === "csv") {
+        content = `"Original","Konvertiert"\n"${entry.original.replace(
+          /"/g,
+          '""'
+        )}","${entry.translated.replace(/"/g, '""')}"`;
+        filename = `translation_${entryId}.csv`;
+        mimeType = "text/csv";
+      }
+
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      chrome.downloads.download({
+        url: url,
+        filename: filename,
+        saveAs: true,
+      });
+    });
+  }
+
   function loadLoopHistory() {
-    // Beispiel für Loop-Verlauf, anpassen nach Bedarf
     chrome.storage.local.get({ loopVerlauf: [] }, (result) => {
       const loopVerlauf = result.loopVerlauf;
       loopHistoryList.innerHTML = "";
@@ -120,7 +191,7 @@ document.addEventListener("DOMContentLoaded", () => {
               <pre>${sanitize(entry.original)}</pre>
             </div>
             <div>
-              <strong>Übersetzt:</strong>
+              <strong>Konvertiert:</strong>
               <pre>${sanitize(entry.translated)}</pre>
             </div>
           `;

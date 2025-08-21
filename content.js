@@ -40,8 +40,46 @@ window.addEventListener("message", async (event) => {
 
     chrome.storage.local.set({ verlauf }, () => {
       console.log("Verlaufseintrag gespeichert:", eintrag);
+      showMessagePopup("✅ Fertig! Eintrag gespeichert. Im Verlauf einsehbar.");
     });
   });
+  // kleine Popup-Funktion
+  function showMessagePopup(message) {
+    const popup = document.createElement("div");
+    popup.innerText = message;
+    Object.assign(popup.style, {
+      position: "fixed",
+      top: "-100px", // Startposition über dem Bildschirm
+      left: "50%",
+      transform: "translateX(-50%)",
+      background: "#28a745",
+      color: "white",
+      padding: "20px 30px",
+      borderRadius: "10px",
+      boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+      zIndex: 9999,
+      fontSize: "18px",
+      fontWeight: "bold",
+      fontFamily: "sans-serif",
+      opacity: "0",
+      transition: "all 0.6s ease", // smoothes Reinfahren
+    });
+
+    document.body.appendChild(popup);
+
+    // kurz warten, dann animiert reinschieben
+    requestAnimationFrame(() => {
+      popup.style.top = "40px"; // Zielposition
+      popup.style.opacity = "1";
+    });
+
+    // nach 3 Sekunden wieder rausfahren
+    setTimeout(() => {
+      popup.style.top = "-100px"; // wieder hochfahren
+      popup.style.opacity = "0";
+      setTimeout(() => popup.remove(), 600); // warten bis Transition fertig
+    }, 3000);
+  }
 });
 
 function splitText(text, maxLength) {
