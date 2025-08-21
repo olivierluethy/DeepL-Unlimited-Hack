@@ -8,10 +8,16 @@ window.addEventListener("message", async (event) => {
 
   const fullText = event.data.payload;
 
-  const maxCounter = document.querySelector(
-    "[data-testid='write-character-counter']"
-  );
-  const maxLength = parseInt(maxCounter?.children[2]?.innerHTML || "2000");
+  const path = window.location.pathname;
+
+  let maxLength = "";
+
+  if (path.startsWith("/de/write") || path.startsWith("/write")) {
+    maxLength = parseInt("2000");
+  }
+  if (path.startsWith("/de/translator") || path.startsWith("/translator")) {
+    maxLength = parseInt("1500");
+  }
 
   const chunks = splitText(fullText, maxLength);
   const results = [];
