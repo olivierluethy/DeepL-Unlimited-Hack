@@ -3,10 +3,9 @@
   "name": "DeepL Text-Split Übersetzer",
   "version": "1.0",
   "description": "Automatische Textübersetzung in Blöcken mit Download-Funktion.",
-  "permissions": ["scripting", "activeTab", "downloads"],
+  "permissions": ["scripting", "activeTab", "downloads", "storage"],
   "action": {
-    "default_popup": "popup.html",
-    "default_icon": "icon.png"
+    "default_popup": "popup.html"
   },
   "background": {
     "service_worker": "background.js"
@@ -17,11 +16,11 @@
       "js": ["content.js"]
     }
   ],
-  "host_permissions": [
-    "*://www.deepl.com/*"
-  ],
-  "web_accessible_resources": [{
-    "resources": ["lib/*"],
-    "matches": ["<all_urls>"]
-  }]
+  "host_permissions": ["*://www.deepl.com/*"],
+  "web_accessible_resources": [
+    {
+      "resources": ["lib/*"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }
