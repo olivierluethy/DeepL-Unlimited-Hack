@@ -3,9 +3,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const inputText = document.getElementById("inputText");
   const status = document.getElementById("status");
   const historyList = document.getElementById("historyList");
-  const startLoopBtn = document.getElementById("startLoopBtn");
-  const loopStatus = document.getElementById("loopStatus");
-  const loopHistoryList = document.getElementById("loopHistoryList");
 
   // Initialisiere Bootstrap Tabs
   const tabList = document.querySelectorAll('#appTabs a[data-bs-toggle="tab"]');
@@ -14,8 +11,6 @@ document.addEventListener("DOMContentLoaded", () => {
       const target = event.target.getAttribute("href");
       if (target === "#history") {
         loadHistory();
-      } else if (target === "#loop") {
-        loadLoopHistory();
       }
     });
   });
@@ -39,16 +34,6 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     status.innerText = "Text wurde gesendet.";
-  });
-
-  // Start Loop-Konvertierung
-  startLoopBtn.addEventListener("click", async () => {
-    const loopTexts = document.getElementById("loopTexts").value.trim();
-    if (!loopTexts) return alert("Bitte Texte für Loop eingeben.");
-
-    loopStatus.innerText = "Starte Loop-Konvertierung...";
-    // Hier Logik für Loop-Konvertierung hinzufügen
-    loopStatus.innerText = "Loop-Konvertierung abgeschlossen.";
   });
 
   function sendTextToContent(text) {
@@ -161,43 +146,6 @@ document.addEventListener("DOMContentLoaded", () => {
         filename: filename,
         saveAs: true,
       });
-    });
-  }
-
-  function loadLoopHistory() {
-    chrome.storage.local.get({ loopVerlauf: [] }, (result) => {
-      const loopVerlauf = result.loopVerlauf;
-      loopHistoryList.innerHTML = "";
-
-      if (!loopVerlauf.length) {
-        loopHistoryList.innerHTML =
-          "<p class='text-muted'>Noch keine Loop-Einträge vorhanden.</p>";
-        return;
-      }
-
-      loopVerlauf
-        .slice()
-        .reverse()
-        .forEach((entry) => {
-          const item = document.createElement("div");
-          item.className = "loop-entry";
-
-          item.innerHTML = `
-            <small class="text-muted">${new Date(
-              entry.timestamp
-            ).toLocaleString()}</small>
-            <div class="mt-2">
-              <strong>Original:</strong>
-              <pre>${sanitize(entry.original)}</pre>
-            </div>
-            <div>
-              <strong>Konvertiert:</strong>
-              <pre>${sanitize(entry.translated)}</pre>
-            </div>
-          `;
-
-          loopHistoryList.appendChild(item);
-        });
     });
   }
 

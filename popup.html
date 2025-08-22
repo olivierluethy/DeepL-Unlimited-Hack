@@ -48,21 +48,21 @@
       <li class="nav-item">
         <a
           class="nav-link"
-          id="history-tab"
-          data-bs-toggle="tab"
-          href="#history"
-          role="tab"
-          >Verlauf</a
-        >
-      </li>
-      <li class="nav-item">
-        <a
-          class="nav-link"
           id="loop-tab"
           data-bs-toggle="tab"
           href="#loop"
           role="tab"
           >Loop-Konvertierung</a
+        >
+      </li>
+      <li class="nav-item">
+        <a
+          class="nav-link"
+          id="history-tab"
+          data-bs-toggle="tab"
+          href="#history"
+          role="tab"
+          >Verlauf</a
         >
       </li>
     </ul>
@@ -112,28 +112,23 @@
       <!-- Loop Management Page -->
       <div class="tab-pane fade" id="loop" role="tabpanel">
         <h5>Loop-Konvertierung</h5>
-        <div class="mb-3">
-          <label for="loopTexts" class="form-label"
-            >Texte für Loop (einer pro Zeile):</label
-          >
-          <textarea
-            class="form-control"
-            id="loopTexts"
-            rows="4"
-            placeholder="Text 1\nText 2\nText 3"
-          ></textarea>
+
+        <div class="input-group">
+          <input
+            type="text"
+            id="mainEntryInput"
+            placeholder="Neuer Haupteintrag..."
+          />
+          <button class="btn-primary" id="addLoop">Eintrag hinzufügen</button>
         </div>
-        <button class="btn btn-primary mb-3" id="startLoopBtn">
-          Loop starten
-        </button>
-        <div id="loopStatus" class="text-muted mb-3"></div>
-        <h5>Loop-Verlauf</h5>
-        <div id="loopHistoryList"></div>
+
+        <div id="entriesContainer"></div>
       </div>
     </div>
 
     <!-- Bootstrap JavaScript (lokal) -->
     <script src="js/bootstrap.bundle.min.js"></script>
     <script src="popup.js" defer></script>
+    <script src="loop.js" defer></script>
   </body>
 </html>
