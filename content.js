@@ -45,8 +45,8 @@ window.addEventListener("message", async (event) => {
     verlauf.push(eintrag);
 
     chrome.storage.local.set({ verlauf }, () => {
-      console.log("Verlaufseintrag gespeichert:", eintrag);
-      showMessagePopup("✅ Fertig! Eintrag gespeichert. Im Verlauf einsehbar.");
+      console.log("History entry saved:", eintrag);
+      showMessagePopup("✅ Done! Entry saved. Viewable in history.");
     });
   });
   // kleine Popup-Funktion

@@ -5,7 +5,19 @@
   "description": "Automatische Textübersetzung in Blöcken mit Download-Funktion.",
   "permissions": ["scripting", "activeTab", "downloads", "storage"],
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon/icon16.png",
+      "32": "icon/icon32.png",
+      "48": "icon/icon48.png"
+    }
+  },
+  "icons": {
+    "16": "icon/icon16.png",
+    "32": "icon/icon32.png",
+    "48": "icon/icon48.png",
+    "64": "icon/icon96.png",
+    "128": "icon/icon128.png"
   },
   "content_scripts": [
     {

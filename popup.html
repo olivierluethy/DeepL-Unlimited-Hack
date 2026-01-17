@@ -102,13 +102,52 @@
         outline: none;
         box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.3);
       }
+      .history-entry pre {
+  background-color: #f8f9fa;
+  border: 1px solid #e9ecef;
+  border-radius: 4px;
+  padding: 8px;
+  font-size: 0.85rem;
+  white-space: pre-wrap;       /* Erlaubt Zeilenumbrüche */
+  word-wrap: break-word;      /* Bricht lange Wörter */
+  max-height: 150px;          /* Maximale Höhe bevor Scrollbar erscheint */
+  overflow-y: auto;           /* Vertikale Scrollbar */
+}
+
     </style>
   </head>
   <body>
-    <div class="d-flex justify-content-between align-items-center mb-4">
-      <h2 class="text-primary mb-0">DeepL Unlimited</h2>
-      <button class="btn btn-primary btn-lg view-page-btn">View on page</button>
-    </div>
+    <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
+  <h2 class="text-primary mb-0 fw-bold">DeepL Unlimited</h2>
+  
+  <div class="d-flex gap-2">
+    <!-- Report Bug Button -->
+    <button id="bugBtn" class="btn btn-outline-danger btn-sm d-flex align-items-center">
+      <svg xmlns="http://www.w3.org" width="14" height="14" fill="currentColor" class="bi bi-bug me-2" viewBox="0 0 16 16">
+        <path d="M4.355.522a.5.5 0 0 1 .623.333l.291.956A4.905 4.905 0 0 1 8 1c1.007 0 1.946.303 2.73.823l.292-.956a.5.5 0 1 1 .956.291l-.279.916c.59.416 1.057.973 1.353 1.631l.845-.423a.5.5 0 0 1 .447.894l-.823.411c.249.42.408.897.462 1.405l.942.213a.5.5 0 1 1-.22.975l-.943-.214a5.074 5.074 0 0 1-.135 1.026l.893.447a.5.5 0 1 1-.447.894l-.893-.447a5.09 5.09 0 0 1-.746 1.168l.86.86a.5.5 0 0 1-.707.707l-.86-.86a5.07 5.07 0 0 1-1.026.541l.213.943a.5.5 0 0 1-.975.22l-.214-.943a4.913 4.913 0 0 1-1.558 0l-.214.943a.5.5 0 1 1-.975-.22l.213-.943a5.07 5.07 0 0 1-1.026-.541l-.86.86a.5.5 0 1 1-.707-.707l.86-.86a5.09 5.09 0 0 1-.746-1.168l-.893.447a.5.5 0 1 1-.447-.894l.893-.447a5.074 5.074 0 0 1-.135-1.026l-.943.214a.5.5 0 1 1-.22-.975l.942-.213A5.07 5.07 0 0 1 2 6c0-.508.153-.985.402-1.405l-.823-.411a.5.5 0 0 1 .447-.894l.845.423a4.905 4.905 0 0 1 1.353-1.631l-.279-.916a.5.5 0 0 1 .333-.623zM4.5 6v2a3.5 3.5 0 0 0 7 0V6a3.5 3.5 0 0 0-7 0"/>
+      </svg>
+      Bug
+    </button>
+
+    <!-- Feature Request Button -->
+    <button id="featureBtn" class="btn btn-outline-info btn-sm d-flex align-items-center">
+      <svg xmlns="http://www.w3.org" width="14" height="14" fill="currentColor" class="bi bi-lightbulb me-2" viewBox="0 0 16 16">
+        <path d="M2 6a6 6 0 1 1 10.174 4.31c-.203.196-.359.4-.453.619l-.762 1.769A.5.5 0 0 1 10.5 13h-5a.5.5 0 0 1-.46-.302l-.761-1.77a1.964 1.964 0 0 0-.453-.618A5.984 5.984 0 0 1 2 6m6-5a5 5 0 0 0-3.479 8.592c.263.254.514.564.676.941L5.83 12h4.342l.632-1.467c.162-.377.413-.687.676-.941A5 5 0 0 0 8 1"/>
+        <path d="M7.703 14.962a.75.75 0 0 1 .594 0l.334.148c.307.136.324.555.059.716a1.27 1.27 0 0 1-1.38 0c-.265-.16-.248-.58.058-.716l.335-.148ZM5.5 14a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5"/>
+      </svg>
+      Feature
+    </button>
+
+    <!-- View on Page Button -->
+    <button class="btn btn-primary btn-sm d-flex align-items-center shadow-sm view-page-btn">
+      <svg xmlns="http://www.w3.org" width="14" height="14" fill="currentColor" class="bi bi-arrow-up-right-square me-2" viewBox="0 0 16 16">
+        <path fill-rule="evenodd" d="M15 2a1 1 0 0 0-1-1H2a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1zM0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2zm5.854 8.803a.5.5 0 1 1-.708-.707L9.243 6H6.475a.5.5 0 1 1 0-1h3.975a.5.5 0 0 1 .5.5v3.975a.5.5 0 1 1-1 0V6.707z"/>
+      </svg>
+      View on page
+    </button>
+  </div>
+</div>
+
 
     <!-- Tab Navigation -->
     <ul class="nav nav-tabs mb-3" id="appTabs" role="tablist">
