@@ -20,12 +20,20 @@ document.addEventListener("DOMContentLoaded", () => {
     const text = inputText.value.trim();
     if (!text) return alert("Please enter text.");
 
-    status.innerText = "Send to DeepL...";
-
     const [tab] = await chrome.tabs.query({
       active: true,
       currentWindow: true,
     });
+
+    const deeplRegex = /^https:\/\/www\.deepl\.com\/[^\/]+\/(translate|write)/;
+
+    if (!tab.url || !deeplRegex.test(tab.url)) {
+      return alert(
+        "You are not in DeepL. Please switch to DeepL for the extension to work.",
+      );
+    }
+
+    status.innerText = "Send to DeepL...";
 
     chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -41,27 +49,36 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function loadHistory() {
-  chrome.storage.local.get({ verlauf: [] }, (result) => {
-    const verlauf = result.verlauf;
-    historyList.innerHTML = "";
+    chrome.storage.local.get({ verlauf: [] }, (result) => {
+      const verlauf = result.verlauf;
+      historyList.innerHTML = "";
 
-    if (!verlauf.length) {
-      historyList.innerHTML = "<p class='text-muted'>No entries available yet.</p>";
-      return;
-    }
+      if (!verlauf.length) {
+        historyList.innerHTML =
+          "<p class='text-muted'>No entries available yet.</p>";
+        return;
+      }
 
-    verlauf.slice().reverse().forEach((entry) => {
-      const item = document.createElement("div");
-      item.className = "history-entry border-bottom pb-3 mb-3"; // Trennlinie für bessere Übersicht
+      verlauf
+        .slice()
+        .reverse()
+        .forEach((entry) => {
+          const item = document.createElement("div");
+          item.className = "history-entry border-bottom pb-3 mb-3"; // Trennlinie für bessere Übersicht
 
-      item.innerHTML = `
+          item.innerHTML = `
         <small class="text-muted d-block mb-1">
           <svg xmlns="http://www.w3.org" width="12" height="12" fill="currentColor" class="bi bi-clock me-1" viewBox="0 0 16 16">
             <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71z"/>
             <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16m7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0"/>
           </svg>
-          ${new Date(entry.timestamp).toLocaleString('en-US', {
-            month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true
+          ${new Date(entry.timestamp).toLocaleString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+            hour12: true,
           })}
         </small>
         
@@ -111,41 +128,42 @@ document.addEventListener("DOMContentLoaded", () => {
         </div>
       `;
 
+          // Event: Details Button
+          item.querySelector(".details-entry").addEventListener("click", () => {
+            const url =
+              chrome.runtime.getURL("history-detail.html") + `?id=${entry.id}`;
+            chrome.tabs.create({ url });
+          });
 
-      // Event: Details Button
-      item.querySelector(".details-entry").addEventListener("click", () => {
-        const url = chrome.runtime.getURL("history-detail.html") + `?id=${entry.id}`;
-        chrome.tabs.create({ url });
-      });
+          // Event: Copy Button funktionsfähig machen
+          item
+            .querySelector(".copy-btn")
+            .addEventListener("click", function () {
+              const textToCopy = entry.translated;
+              navigator.clipboard.writeText(textToCopy).then(() => {
+                const originalHTML = this.innerHTML;
+                this.innerHTML = '<i class="bi bi-check-lg"></i> Copied!';
+                this.classList.replace("btn-outline-success", "btn-success");
 
-      // Event: Copy Button funktionsfähig machen
-      item.querySelector(".copy-btn").addEventListener("click", function() {
-        const textToCopy = entry.translated;
-        navigator.clipboard.writeText(textToCopy).then(() => {
-          const originalHTML = this.innerHTML;
-          this.innerHTML = '<i class="bi bi-check-lg"></i> Copied!';
-          this.classList.replace('btn-outline-success', 'btn-success');
-          
-          setTimeout(() => {
-            this.innerHTML = originalHTML;
-            this.classList.replace('btn-success', 'btn-outline-success');
-          }, 2000);
+                setTimeout(() => {
+                  this.innerHTML = originalHTML;
+                  this.classList.replace("btn-success", "btn-outline-success");
+                }, 2000);
+              });
+            });
+
+          // Event: Dropdown-Items
+          item.querySelectorAll(".dropdown-item").forEach((dropdownItem) => {
+            dropdownItem.addEventListener("click", (e) => {
+              e.preventDefault();
+              downloadEntry(entry.id, e.target.getAttribute("data-format"));
+            });
+          });
+
+          historyList.appendChild(item);
         });
-      });
-
-      // Event: Dropdown-Items
-      item.querySelectorAll(".dropdown-item").forEach((dropdownItem) => {
-        dropdownItem.addEventListener("click", (e) => {
-          e.preventDefault();
-          downloadEntry(entry.id, e.target.getAttribute("data-format"));
-        });
-      });
-
-      historyList.appendChild(item);
     });
-  });
-}
-
+  }
 
   function downloadEntry(entryId, format) {
     chrome.storage.local.get({ verlauf: [] }, (result) => {
@@ -164,7 +182,7 @@ document.addEventListener("DOMContentLoaded", () => {
       } else if (format === "csv") {
         content = `"Original","Converted"\n"${entry.original.replace(
           /"/g,
-          '""'
+          '""',
         )}","${entry.translated.replace(/"/g, '""')}"`;
         filename = `translation_${entryId}.csv`;
         mimeType = "text/csv";
@@ -187,9 +205,9 @@ document.addEventListener("DOMContentLoaded", () => {
     return div.innerHTML;
   }
 });
-document.getElementById("bugBtn").addEventListener("click", ()=>{
+document.getElementById("bugBtn").addEventListener("click", () => {
   window.open("https://forms.gle/7LNwEpVCbXwunT6s8");
-})
-document.getElementById("featureBtn").addEventListener("click", ()=>{
+});
+document.getElementById("featureBtn").addEventListener("click", () => {
   window.open("https://forms.gle/rFiHJZesQkrP6RiGA", "_blank");
-})
+});

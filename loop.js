@@ -9,19 +9,14 @@ async function sendTextToDeepL(text) {
   await chrome.scripting.executeScript({
     target: { tabId: tab.id },
     function: (payload) => {
-      window.postMessage(
-        { type: "DEEPL_TRANSLATE", payload },
-        "*"
-      );
+      window.postMessage({ type: "DEEPL_TRANSLATE", payload }, "*");
     },
     args: [text],
   });
 }
 
 async function startGroupTranslation(entryDiv) {
-  const subEntries = entryDiv.querySelectorAll(
-  ".sub-entry .sub-entry-text"
-);
+  const subEntries = entryDiv.querySelectorAll(".sub-entry .sub-entry-text");
 
   if (!subEntries.length) {
     alert("This group has no entries to translate.");
@@ -48,8 +43,6 @@ async function startGroupTranslation(entryDiv) {
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
-
-
 
 let entryId = 0;
 let entryCounter = 0;
@@ -245,9 +238,9 @@ document
     } else if (e.target.classList.contains("save-edit")) {
       saveEditText(e.target);
     } else if (e.target.classList.contains("start-group")) {
-  const entryDiv = e.target.closest(".loop-entry");
-  startGroupTranslation(entryDiv);
-}
+      const entryDiv = e.target.closest(".loop-entry");
+      startGroupTranslation(entryDiv);
+    }
   });
 
 function addSubEntry(btn) {

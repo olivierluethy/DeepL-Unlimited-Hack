@@ -12,11 +12,15 @@ window.addEventListener("message", async (event) => {
 
   let maxLength = "";
 
-  if (path.startsWith("/de/write") || path.startsWith("/write")) {
-    maxLength = parseInt("2000");
+  const writeRegex = /^\/[^\/]+\/write/;
+  const translateRegex = /^\/[^\/]+\/(translate|translator)/;
+
+  if (writeRegex.test(path)) {
+    maxLength = 2000;
   }
-  if (path.startsWith("/de/translator") || path.startsWith("/translator")) {
-    maxLength = parseInt("1500");
+
+  if (translateRegex.test(path)) {
+    maxLength = 1500;
   }
 
   const chunks = splitText(fullText, maxLength);
@@ -107,7 +111,7 @@ function splitText(text, maxLength) {
 
 async function insertAndTranslate(text) {
   const sourceInput = document.querySelector(
-    "[data-testid='translator-source-input'] [role='textbox']"
+    "[data-testid='translator-source-input'] [role='textbox']",
   );
   sourceInput.innerText = "";
 
@@ -120,7 +124,7 @@ async function insertAndTranslate(text) {
 
 async function getTranslatedText() {
   const targetInput = document.querySelector(
-    "[data-testid='translator-target-input'] [role='textbox']"
+    "[data-testid='translator-target-input'] [role='textbox']",
   );
   return targetInput?.textContent || "";
 }
