@@ -36,37 +36,39 @@
   </head>
   <body class="bg-gray-100 min-h-screen flex justify-center items-start py-8">
     <div class="w-full max-w-6xl mx-auto bg-white rounded-lg shadow-lg p-6">
-      <h2 class="text-2xl font-bold text-indigo-600 mb-6">Verlauf-Details</h2>
+      <h2 class="text-2xl font-bold text-indigo-600 mb-6">History details</h2>
       <button
         id="backBtn"
         class="mb-6 bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
       >
-        Zurück
+        Back
       </button>
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div class="space-y-4">
           <div class="border border-gray-200 rounded-md p-4 bg-white">
             <h5 class="text-lg font-semibold text-gray-800 mb-2">
-              Originaltext
+              Original text
             </h5>
-            <pre
-              id="originalText"
-              class="text-sm text-gray-700 overflow-auto max-h-[70vh]"
-            ></pre>
+            <!-- Original Text Box -->
+<pre
+  id="originalText"
+  class="text-sm text-gray-700 overflow-auto max-h-[70vh] diff-container"
+></pre>
           </div>
           <div class="border border-gray-200 rounded-md p-4 bg-white">
             <h5 class="text-lg font-semibold text-gray-800 mb-2">
-              Konvertierter Text
+              Converted text
             </h5>
-            <pre
-              id="translatedText"
-              class="text-sm text-gray-700 overflow-auto max-h-[70vh]"
-            ></pre>
+            <!-- Converted Text Box -->
+<pre
+  id="translatedText"
+  class="text-sm text-gray-700 overflow-auto max-h-[70vh] diff-container"
+></pre>
           </div>
           <p id="timestamp" class="text-sm text-gray-500"></p>
         </div>
         <div class="border border-gray-200 rounded-md p-4 bg-gray-50">
-          <h5 class="text-lg font-semibold text-gray-800 mb-2">Unterschiede</h5>
+          <h5 class="text-lg font-semibold text-gray-800 mb-2">Differences</h5>
           <div
             id="diffOutput"
             class="diff-container overflow-auto max-h-[70vh]"

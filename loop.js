@@ -1,3 +1,56 @@
+async function sendTextToDeepL(text) {
+  if (!text.trim()) return;
+
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true,
+  });
+
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    function: (payload) => {
+      window.postMessage(
+        { type: "DEEPL_TRANSLATE", payload },
+        "*"
+      );
+    },
+    args: [text],
+  });
+}
+
+async function startGroupTranslation(entryDiv) {
+  const subEntries = entryDiv.querySelectorAll(
+  ".sub-entry .sub-entry-text"
+);
+
+  if (!subEntries.length) {
+    alert("This group has no entries to translate.");
+    return;
+  }
+
+  entryDiv.dataset.used = "true";
+  await saveEntriesToStorage();
+
+  for (let i = 0; i < subEntries.length; i++) {
+    const text = subEntries[i].textContent.trim();
+    if (!text) continue;
+
+    console.log(`🌍 Translating entry ${i + 1}/${subEntries.length}`);
+    await sendTextToDeepL(text);
+
+    // ⏱️ IMPORTANT: allow DeepL UI to finish
+    await wait(1500);
+  }
+
+  console.log("✅ Group translation finished");
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+
+
 let entryId = 0;
 let entryCounter = 0;
 
@@ -26,13 +79,13 @@ async function saveEntriesToStorage() {
   });
 
   await chrome.storage.local.set({ loopEntries: entries });
-  console.log("✅ Loop-Einträge gespeichert:", entries);
+  console.log("✅ Loop entries saved:", entries);
 }
 
 async function loadEntriesFromStorage() {
   const result = await chrome.storage.local.get("loopEntries");
   const entries = result.loopEntries || [];
-  console.log("📦 Geladene Loop-Einträge:", entries);
+  console.log("📦 Loaded loop entries:", entries);
 
   const container = document.getElementById("entriesContainer");
   container.innerHTML = "";
@@ -67,14 +120,42 @@ function renderEntry(entryData, container) {
       <div class="sub-entry-text">${entryData.name}</div>
     </span>
     <span class="actions">
-      <button class="btn btn-outline-secondary btn-sm edit-entry">✏️ Bearbeiten</button>
-      <button class="btn btn-outline-danger btn-sm delete-entry">🗑️ Löschen</button>
+      <!-- Details Button mit Info-Icon -->
+<button class="btn btn-outline-primary btn-sm details-entry">
+  <svg xmlns="http://www.w3.org" width="16" height="16" fill="currentColor" class="bi bi-info-circle me-1" viewBox="0 0 16 16">
+    <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/>
+    <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0"/>
+  </svg>
+  Details
+</button>
+      <!-- Edit Button mit Pencil-Icon -->
+<button class="btn btn-outline-secondary btn-sm edit-entry">
+  <svg xmlns="http://www.w3.org" width="16" height="16" fill="currentColor" class="bi bi-pencil-square me-1" viewBox="0 0 16 16">
+    <path d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z"/>
+    <path fill-rule="evenodd" d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5z"/>
+  </svg>
+  Edit
+</button>
+      <!-- Delete Button (Mülltonne) -->
+<button class="btn btn-outline-danger btn-sm delete-entry">
+  <svg xmlns="http://www.w3.org" width="16" height="16" fill="currentColor" class="bi bi-trash3 me-1" viewBox="0 0 16 16">
+    <path d="M6.5 1h3a.5.5 0 0 1 .5.5v1H6v-1a.5.5 0 0 1 .5-.5M11 2.5v-1A1.5 1.5 0 0 0 9.5 0h-3A1.5 1.5 0 0 0 5 1.5v1H1.5a.5.5 0 0 0 0 1h.538l.853 10.66A2 2 0 0 0 4.885 16h6.23a2 2 0 0 0 1.994-1.84l.853-10.66h.538a.5.5 0 0 0 0-1zm1.958 1-.846 10.58a1 1 0 0 1-1.002.92H4.885a1 1 0 0 1-1.002-.92L3.042 3.5zm-7.487 1a.5.5 0 0 1 .528.47l.5 8.5a.5.5 0 0 1-.998.06L5 5.03a.5.5 0 0 1 .47-.53Zm5.058 0a.5.5 0 0 1 .47.53l-.5 8.5a.5.5 0 1 1-.998-.06l.5-8.5a.5.5 0 0 1 .528-.47M8 4.5a.5.5 0 0 1 .5.5v8.5a.5.5 0 0 1-1 0V5a.5.5 0 0 1 .5-.5"/>
+  </svg>
+  Delete
+</button>
+      <!-- Start Button (Play-Symbol) -->
+<button class="btn btn-success btn-sm start-group">
+  <svg xmlns="http://www.w3.org" width="16" height="16" fill="currentColor" class="bi bi-play-fill me-1" viewBox="0 0 16 16">
+    <path d="m11.596 8.697-6.363 3.692c-.54.313-1.233-.066-1.233-.697V4.308c0-.63.692-1.01 1.233-.696l6.363 3.692a.802.802 0 0 1 0 1.393"/>
+  </svg>
+  Start
+</button>
     </span>
   `;
   entryDiv.appendChild(header);
 
   const subContainer = document.createElement("div");
-  subContainer.className = "sub-container";
+  subContainer.className = "sub-container collapse";
   subContainer.dataset.subEntryCounter = entryData.subEntries?.length || 0;
   entryDiv.appendChild(subContainer);
 
@@ -86,10 +167,10 @@ function renderEntry(entryData, container) {
       subDiv.innerHTML = `
         <span class="sub-entry-number fw-bold">${entryCounter}.${i + 1}</span>
         <div class="sub-entry-text">${sub.text}</div>
-        <span class="toggle-text">Mehr anzeigen</span>
+        <span class="toggle-text">Show more</span>
         <span class="actions">
-          <button class="btn btn-outline-secondary btn-sm edit-sub">✏️ Bearbeiten</button>
-          <button class="btn btn-outline-danger btn-sm delete-sub">🗑️ Löschen</button>
+          <button class="btn btn-outline-secondary btn-sm edit-sub">✏️ Edit</button>
+          <button class="btn btn-outline-danger btn-sm delete-sub">🗑️ Delete</button>
         </span>
       `;
       subContainer.appendChild(subDiv);
@@ -98,14 +179,28 @@ function renderEntry(entryData, container) {
   }
 
   const subInputGroup = document.createElement("div");
-  subInputGroup.className = "input-group mb-2";
+  subInputGroup.className = "input-group mb-2 mt-2";
   subInputGroup.innerHTML = `
-    <textarea class="form-control sub-input" placeholder="Neuer Untereintrag..." rows="2"></textarea>
-    <button class="btn btn-outline-primary btn-sm addSubEntry">➕ Hinzufügen</button>
+    <textarea class="form-control sub-input" placeholder="New subentry..." rows="2"></textarea>
+    <button class="btn btn-outline-primary btn-sm addSubEntry">➕ Add</button>
   `;
-  entryDiv.appendChild(subInputGroup);
+  subContainer.appendChild(subInputGroup);
 
   container.prepend(entryDiv);
+
+  // Initialize Bootstrap collapse
+  const collapse = new bootstrap.Collapse(subContainer, {
+    toggle: false,
+  });
+
+  // Add click event for details button
+  header.querySelector(".details-entry").addEventListener("click", () => {
+    const isExpanded = subContainer.classList.contains("show");
+    collapse.toggle();
+    header.querySelector(".details-entry").textContent = isExpanded
+      ? "Details"
+      : "Close";
+  });
 }
 
 // -----------------------------
@@ -132,23 +227,28 @@ document.getElementById("addLoop").addEventListener("click", function () {
   saveEntriesToStorage();
 });
 
-document.getElementById("entriesContainer").addEventListener("click", function (e) {
-  if (e.target.classList.contains("addSubEntry")) {
-    addSubEntry(e.target);
-  } else if (e.target.classList.contains("toggle-text")) {
-    toggleText(e.target);
-  } else if (e.target.classList.contains("edit-entry")) {
-    startEditText(e.target, "entry");
-  } else if (e.target.classList.contains("delete-entry")) {
-    deleteEntry(e.target, "entry");
-  } else if (e.target.classList.contains("edit-sub")) {
-    startEditText(e.target, "sub");
-  } else if (e.target.classList.contains("delete-sub")) {
-    deleteEntry(e.target, "sub");
-  } else if (e.target.classList.contains("save-edit")) {
-    saveEditText(e.target);
-  }
-});
+document
+  .getElementById("entriesContainer")
+  .addEventListener("click", function (e) {
+    if (e.target.classList.contains("addSubEntry")) {
+      addSubEntry(e.target);
+    } else if (e.target.classList.contains("toggle-text")) {
+      toggleText(e.target);
+    } else if (e.target.classList.contains("edit-entry")) {
+      startEditText(e.target, "entry");
+    } else if (e.target.classList.contains("delete-entry")) {
+      deleteEntry(e.target, "entry");
+    } else if (e.target.classList.contains("edit-sub")) {
+      startEditText(e.target, "sub");
+    } else if (e.target.classList.contains("delete-sub")) {
+      deleteEntry(e.target, "sub");
+    } else if (e.target.classList.contains("save-edit")) {
+      saveEditText(e.target);
+    } else if (e.target.classList.contains("start-group")) {
+  const entryDiv = e.target.closest(".loop-entry");
+  startGroupTranslation(entryDiv);
+}
+  });
 
 function addSubEntry(btn) {
   const entryDiv = btn.closest(".loop-entry");
@@ -168,22 +268,30 @@ function addSubEntry(btn) {
     <div class="sub-entry-text">${text}</div>
     <span class="toggle-text">Mehr anzeigen</span>
     <span class="actions">
-      <button class="btn btn-outline-secondary btn-sm edit-sub">✏️ Bearbeiten</button>
-      <button class="btn btn-outline-danger btn-sm delete-sub">🗑️ Löschen</button>
+      <button class="btn btn-outline-secondary btn-sm edit-sub">✏️ Edit</button>
+      <button class="btn btn-outline-danger btn-sm delete-sub">🗑️ Delete</button>
     </span>
   `;
-  subContainer.appendChild(subDiv);
+  subContainer.insertBefore(subDiv, subContainer.querySelector(".input-group"));
   subInput.value = "";
 
   updateTextToggle(subDiv);
   saveEntriesToStorage();
+
+  // Ensure sub-container is visible when adding a new sub-entry
+  const collapse = new bootstrap.Collapse(subContainer, { toggle: false });
+  if (!subContainer.classList.contains("show")) {
+    collapse.show();
+    entryDiv.querySelector(".details-entry").textContent = "Close";
+  }
 }
 
 // -----------------------------
 // Edit / Delete / Save
 // -----------------------------
 function startEditText(btn, type) {
-  const parent = type === "entry" ? btn.closest(".loop-entry") : btn.closest(".sub-entry");
+  const parent =
+    type === "entry" ? btn.closest(".loop-entry") : btn.closest(".sub-entry");
   const textElement = parent.querySelector(".sub-entry-text");
   const currentText = textElement.textContent;
 
@@ -195,7 +303,7 @@ function startEditText(btn, type) {
   textElement.replaceWith(textarea);
   textarea.focus();
 
-  btn.textContent = "💾 Speichern";
+  btn.textContent = "💾 Save";
   btn.classList.remove("edit-entry", "edit-sub");
   btn.classList.add("save-edit");
 }
@@ -216,7 +324,7 @@ function saveEditText(btn) {
     textarea.replaceWith(textElement);
   }
 
-  btn.textContent = "✏️ Bearbeiten";
+  btn.textContent = "✏️ Edit";
   btn.classList.remove("save-edit");
   btn.classList.add(type === "entry" ? "edit-entry" : "edit-sub");
 
@@ -224,7 +332,8 @@ function saveEditText(btn) {
 }
 
 function deleteEntry(btn, type) {
-  const parent = type === "entry" ? btn.closest(".loop-entry") : btn.closest(".sub-entry");
+  const parent =
+    type === "entry" ? btn.closest(".loop-entry") : btn.closest(".sub-entry");
   parent.remove();
   if (type === "entry") updateEntryNumbers();
   saveEntriesToStorage();
@@ -242,7 +351,9 @@ function updateEntryNumbers() {
     entry.querySelector(".entry-number").textContent = `${number}.`;
     const subEntries = entry.querySelectorAll(".sub-entry");
     subEntries.forEach((sub, subIndex) => {
-      sub.querySelector(".sub-entry-number").textContent = `${number}.${subIndex + 1}`;
+      sub.querySelector(".sub-entry-number").textContent = `${number}.${
+        subIndex + 1
+      }`;
     });
   });
 }
@@ -254,7 +365,7 @@ function updateTextToggle(subDiv) {
 
   if (textDiv.scrollHeight > textDiv.clientHeight) {
     toggle.style.display = "inline-block";
-    toggle.textContent = "Mehr anzeigen";
+    toggle.textContent = "Show more";
   } else {
     toggle.style.display = "none";
   }
@@ -264,10 +375,10 @@ function toggleText(toggle) {
   const textDiv = toggle.previousElementSibling;
   if (textDiv.classList.contains("expanded")) {
     textDiv.classList.remove("expanded");
-    toggle.textContent = "Mehr anzeigen";
+    toggle.textContent = "Show more";
   } else {
     textDiv.classList.add("expanded");
-    toggle.textContent = "Weniger anzeigen";
+    toggle.textContent = "Show less";
   }
 }
 

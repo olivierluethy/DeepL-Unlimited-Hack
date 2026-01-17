@@ -1,3 +1,12 @@
+const formatDate = (ts) => new Date(ts).toLocaleString('en-US', {
+  month: 'short',
+  day: 'numeric',
+  year: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit',
+  hour12: true
+});
+
 document.addEventListener("DOMContentLoaded", () => {
   const originalText = document.getElementById("originalText");
   const translatedText = document.getElementById("translatedText");
@@ -11,7 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const entryId = urlParams.get("id");
 
   if (!entryId) {
-    originalText.innerText = "Kein Eintrag ausgewählt.";
+    originalText.innerText = "No entry selected.";
     translatedText.innerText = "";
     diffOutput.innerText = "";
     return;
@@ -23,7 +32,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const entry = verlauf.find((item) => item.id === entryId);
 
     if (!entry) {
-      originalText.innerText = "Eintrag nicht gefunden.";
+      originalText.innerText = "Entry not found.";
       translatedText.innerText = "";
       diffOutput.innerText = "";
       return;
@@ -32,9 +41,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Zeige Original- und konvertierter Text
     originalText.innerHTML = sanitize(entry.original);
     translatedText.innerHTML = sanitize(entry.translated);
-    timestamp.innerText = `Erstellt: ${new Date(
-      entry.timestamp
-    ).toLocaleString()}`;
+    timestamp.innerText = `Created: ${formatDate(entry.timestamp)}`;
 
     // Berechne und zeige Unterschiede mit der Diff-Bibliothek
     const diff = Diff.diffWords(entry.original, entry.translated);
@@ -53,7 +60,7 @@ document.addEventListener("DOMContentLoaded", () => {
       })
       .join("");
     diffOutput.innerHTML = html;
-    changeCounter.innerText = `Anzahl der Änderungen: ${changeCount}`;
+    changeCounter.innerText = `Number of changes: ${changeCount}`;
   });
 
   // Zurück-Button

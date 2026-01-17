@@ -18,9 +18,9 @@ document.addEventListener("DOMContentLoaded", () => {
   // Senden an Content Script
   sendBtn.addEventListener("click", async () => {
     const text = inputText.value.trim();
-    if (!text) return alert("Bitte Text eingeben.");
+    if (!text) return alert("Please enter text.");
 
-    status.innerText = "Sende an DeepL...";
+    status.innerText = "Send to DeepL...";
 
     const [tab] = await chrome.tabs.query({
       active: true,
@@ -33,7 +33,7 @@ document.addEventListener("DOMContentLoaded", () => {
       args: [text],
     });
 
-    status.innerText = "Text wurde gesendet.";
+    status.innerText = "Text has been sent.";
   });
 
   function sendTextToContent(text) {
@@ -47,7 +47,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (!verlauf.length) {
         historyList.innerHTML =
-          "<p class='text-muted'>Noch keine Einträge vorhanden.</p>";
+          "<p class='text-muted'>No entries available yet.</p>";
         return;
       }
 
@@ -59,15 +59,20 @@ document.addEventListener("DOMContentLoaded", () => {
           item.className = "history-entry";
 
           item.innerHTML = `
-  <small class="text-muted">${new Date(
-    entry.timestamp
-  ).toLocaleString()}</small>
+  <small class="text-muted">${new Date(entry.timestamp).toLocaleString('en-US', {
+    month: 'short',   // "Jan" statt "January"
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true      // Behält AM/PM bei, entfernt aber die Sekunden
+  })}</small>
   <div class="mt-2">
     <strong>Original:</strong>
     <pre>${sanitize(entry.original)}</pre>
   </div>
   <div>
-    <strong>Konvertiert:</strong>
+    <strong>Converted:</strong>
     <pre>${sanitize(entry.translated)}</pre>
   </div>
   <button class="btn btn-outline-primary btn-sm mt-2" data-id="${
@@ -75,7 +80,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }">Details</button>
   <div class="dropdown mt-2">
     <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-      Herunterladen
+      Download
     </button>
     <ul class="dropdown-menu">
       <li><a class="dropdown-item" href="#" data-id="${
@@ -119,11 +124,11 @@ document.addEventListener("DOMContentLoaded", () => {
   function downloadEntry(entryId, format) {
     chrome.storage.local.get({ verlauf: [] }, (result) => {
       const entry = result.verlauf.find((e) => e.id === entryId);
-      if (!entry) return alert("Eintrag nicht gefunden.");
+      if (!entry) return alert("Entry not found.");
 
       let content, filename, mimeType;
       if (format === "txt") {
-        content = `Original: ${entry.original}\n\nKonvertiert: ${entry.translated}`;
+        content = `Original: ${entry.original}\n\nConverted: ${entry.translated}`;
         filename = `translation_${entryId}.txt`;
         mimeType = "text/plain";
       } else if (format === "json") {
@@ -131,7 +136,7 @@ document.addEventListener("DOMContentLoaded", () => {
         filename = `translation_${entryId}.json`;
         mimeType = "application/json";
       } else if (format === "csv") {
-        content = `"Original","Konvertiert"\n"${entry.original.replace(
+        content = `"Original","Converted"\n"${entry.original.replace(
           /"/g,
           '""'
         )}","${entry.translated.replace(/"/g, '""')}"`;

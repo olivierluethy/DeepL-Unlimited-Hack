@@ -11,7 +11,7 @@
       body {
         width: 600px;
         padding: 20px;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
       }
       .loop-entry {
         border: 1px solid #dee2e6;
@@ -43,23 +43,15 @@
         border-radius: 4px;
       }
       .sub-entry-text {
-        max-height: 100px;
-        overflow: hidden;
+        max-height: none; /* Keine Begrenzung mehr */
+        overflow: visible; /* Vollständig anzeigen */
         position: relative;
-        font-size: 0.9rem;
+        font-size: 1rem; /* etwas größere Schrift für bessere Lesbarkeit */
+        line-height: 1.4;
+        white-space: normal; /* Zeilenumbruch normal */
       }
       .sub-entry-text.expanded {
         max-height: none;
-      }
-      .sub-entry-text::after {
-        content: '';
-        position: absolute;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        height: 30px;
-        background: linear-gradient(to bottom, transparent, #fff);
-        display: block;
       }
       .sub-entry-text.expanded::after {
         display: none;
@@ -83,10 +75,40 @@
         overflow-y: auto;
         padding-right: 10px;
       }
+      .view-page-btn {
+        background: linear-gradient(135deg, #0d6efd, #6610f2);
+        color: #fff;
+        font-weight: 600;
+        border: none;
+        border-radius: 50px;
+        padding: 0.45rem 1.2rem;
+        transition: transform 0.2s, box-shadow 0.2s, filter 0.2s;
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+        font-size: 0.9rem;
+      }
+
+      .view-page-btn:hover {
+        transform: translateY(-2px) scale(1.02);
+        box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
+        filter: brightness(1.1);
+      }
+
+      .view-page-btn:active {
+        transform: translateY(1px) scale(0.98);
+        box-shadow: 0 3px 6px rgba(0, 0, 0, 0.15);
+      }
+
+      .view-page-btn:focus {
+        outline: none;
+        box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.3);
+      }
     </style>
   </head>
   <body>
-    <h2 class="mb-4 text-primary">DeepL Unlimited</h2>
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h2 class="text-primary mb-0">DeepL Unlimited</h2>
+      <button class="btn btn-primary btn-lg view-page-btn">View on page</button>
+    </div>
 
     <!-- Tab Navigation -->
     <ul class="nav nav-tabs mb-3" id="appTabs" role="tablist">
@@ -97,7 +119,7 @@
           data-bs-toggle="tab"
           href="#main"
           role="tab"
-          >Hauptseite</a
+          >Main Page</a
         >
       </li>
       <li class="nav-item">
@@ -107,7 +129,7 @@
           data-bs-toggle="tab"
           href="#loop"
           role="tab"
-          >Loop-Konvertierung</a
+          >Loop Conversion</a
         >
       </li>
       <li class="nav-item">
@@ -117,7 +139,7 @@
           data-bs-toggle="tab"
           href="#history"
           role="tab"
-          >Verlauf</a
+          >History</a
         >
       </li>
     </ul>
@@ -127,23 +149,23 @@
       <!-- Main Page -->
       <div class="tab-pane fade show active" id="main" role="tabpanel">
         <div class="mb-3">
-          <label for="inputText" class="form-label">Text eingeben:</label>
+          <label for="inputText" class="form-label">Enter text:</label>
           <textarea
             class="form-control"
             id="inputText"
             rows="6"
-            placeholder="Füge hier deinen Text ein..."
+            placeholder="Enter your text here..."
           ></textarea>
         </div>
         <button class="btn btn-primary mb-3" id="sendBtn">
-          An DeepL senden
+          Send to DeepL
         </button>
         <div id="status" class="text-muted mb-3"></div>
         <div id="downloadSection" class="d-none">
           <div class="alert alert-success">
-            Ihr Text wurde erfolgreich konvertiert.
+            Your text has been successfully converted.
           </div>
-          <h5>Download-Optionen:</h5>
+          <h5>Download options:</h5>
           <div class="d-flex gap-2">
             <button class="btn btn-outline-primary" data-format="txt">
               TXT
@@ -160,21 +182,23 @@
 
       <!-- History Page -->
       <div class="tab-pane fade" id="history" role="tabpanel">
-        <h5>Verlauf der Konvertierungen</h5>
+        <h5>History of conversions</h5>
         <div id="historyList"></div>
       </div>
 
       <!-- Loop Management Page -->
       <div class="tab-pane fade" id="loop" role="tabpanel">
-        <h5>Loop-Konvertierung</h5>
+        <h5>Loop Conversion</h5>
         <div class="input-group mb-3">
           <input
             type="text"
             class="form-control"
             id="mainEntryInput"
-            placeholder="Neuer Haupteintrag..."
+            placeholder="New main entry..."
           />
-          <button class="btn btn-primary" id="addLoop">Eintrag hinzufügen</button>
+          <button class="btn btn-primary" id="addLoop">
+            Add Entry
+          </button>
         </div>
         <div id="entriesContainer"></div>
       </div>
