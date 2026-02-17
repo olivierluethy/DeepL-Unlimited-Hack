@@ -25,7 +25,7 @@ document.addEventListener("DOMContentLoaded", () => {
       currentWindow: true,
     });
 
-    const deeplRegex = /^https:\/\/www\.deepl\.com\/[^\/]+\/(translate|write)/;
+    const deeplRegex = /^https:\/\/www\.deepl\.com\/[^\/]+\/(translate|write|translator)/;
 
     if (!tab.url || !deeplRegex.test(tab.url)) {
       return alert(
