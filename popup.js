@@ -3,6 +3,11 @@ document.addEventListener("DOMContentLoaded", () => {
     const inputText = document.getElementById("inputText");
     const status = document.getElementById("status");
     const historyList = document.getElementById("historyList");
+    const pasteBtn = document.getElementById("pasteBtn");
+    const clearBtn = document.getElementById("clearBtn");
+    const copyInputBtn = document.getElementById("copyInputBtn");
+    const magicFixBtn = document.getElementById("magicFixBtn");
+    const swapBtn = document.getElementById("swapBtn");
 
     // Initialisiere Bootstrap Tabs
     const tabList = document.querySelectorAll('#appTabs a[data-bs-toggle="tab"]');
@@ -15,7 +20,17 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     });
 
-    // Senden an Content Script
+    // --- Lade gespeicherten Input beim Start ---
+    chrome.storage.local.get({ lastInput: "" }, (result) => {
+        inputText.value = result.lastInput;
+    });
+
+    // --- Speichere Input bei jeder Änderung ---
+    inputText.addEventListener("input", () => {
+        chrome.storage.local.set({ lastInput: inputText.value });
+    });
+
+    // --- Send to DeepL Button ---
     sendBtn.addEventListener("click", async () => {
         const text = inputText.value.trim();
         if (!text) return alert("Please enter text.");
@@ -40,41 +55,123 @@ document.addEventListener("DOMContentLoaded", () => {
         });
 
         status.innerText = "Text has been sent.";
+
+        // --- Input nach Senden löschen ---
+        inputText.value = "";
+        chrome.storage.local.set({ lastInput: "" });
     });
 
-    const pasteBtn = document.getElementById("pasteBtn");
+    /*
+    Damit der Swap-Button einen echten Mehrwert bietet, sollte er den Textinhalt logisch umkehren. Da DeepL oft dazu genutzt wird, einen Text zu verbessern oder zu übersetzen, ist die nützlichste Funktion für diesen Button: Den konvertierten Text aus der Historie zurück in das Eingabefeld zu holen.
+Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konvertierten Text und setzt ihn oben ins Feld ein, damit du ihn sofort weiterbearbeiten oder erneut senden kannst.
+    */
+    // Swap Button: Aktuell nur eine visuelle Umkehrung (da Sprachlogik noch fehlt)
+    swapBtn.addEventListener("click", () => {
+        // 1. Visuelle Animation (Rotation)
+        swapBtn.style.transform = "rotate(180deg)";
+        swapBtn.style.transition = "transform 0.3s ease";
 
+        // Zurücksetzen der Rotation nach der Animation
+        setTimeout(() => {
+            swapBtn.style.transform = "rotate(0deg)";
+        }, 300);
+
+        // 2. Logik: Letzten Eintrag aus dem Speicher holen
+        chrome.storage.local.get({ verlauf: [] }, (result) => {
+            const verlauf = result.verlauf;
+
+            if (verlauf.length > 0) {
+                // Hol den aktuellsten Eintrag (das letzte Element im Array)
+                const lastEntry = verlauf[verlauf.length - 1];
+
+                // Den konvertierten Text in das Eingabefeld kopieren
+                inputText.value = lastEntry.translated;
+
+                // Fokus auf das Feld setzen für bessere UX
+                inputText.focus();
+
+                // Optional: Kleines visuelles Feedback in der Statuszeile
+                status.innerText = "Last result restored for re-editing.";
+                setTimeout(() => {
+                    status.innerText = "";
+                }, 2000);
+            } else {
+                alert("No history available to swap back.");
+            }
+        });
+    });
+
+    // Magic Fix: Repariert PDF-Zeilenumbrüche und doppelte Leerzeichen
+    magicFixBtn.addEventListener("click", () => {
+        let text = inputText.value;
+        if (!text) return;
+
+        // 1. Zeilenumbrüche innerhalb von Sätzen entfernen (nur einzelne Umbrüche durch Leerzeichen ersetzen)
+        // 2. Mehrfache Leerzeichen auf eines reduzieren
+        // 3. Vorne und hinten trimmen
+        const fixedText = text
+            .replace(/([^.\n])\n([^.\n])/g, "$1 $2") // Ersetzt Zeilenumbrüche, die nicht nach einem Punkt kommen
+            .replace(/\s+/g, " ") // Reduziert alle Whitespaces (Tabs, Mehrfache Leerzeichen) auf 1 Leerzeichen
+            .trim();
+
+        inputText.value = fixedText;
+
+        // Optisches Feedback
+        const btn = document.getElementById("magicFixBtn");
+        btn.classList.replace("btn-outline-info", "btn-info");
+        setTimeout(() => btn.classList.replace("btn-info", "btn-outline-info"), 500);
+    });
+
+    copyInputBtn.addEventListener("click", () => {
+        const text = inputText.value;
+        if (text) {
+            navigator.clipboard.writeText(text).then(() => {
+                // Kurzes Feedback (Icon-Wechsel)
+                const originalHTML = copyInputBtn.innerHTML;
+                copyInputBtn.innerHTML =
+                    '<svg xmlns="http://www.w3.org" width="14" height="14" fill="currentColor" class="bi bi-check-lg" viewBox="0 0 16 16"><path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z"/></svg>';
+                copyInputBtn.classList.replace("btn-outline-secondary", "btn-success");
+
+                setTimeout(() => {
+                    copyInputBtn.innerHTML = originalHTML;
+                    copyInputBtn.classList.replace("btn-success", "btn-outline-secondary");
+                }, 1500);
+            });
+        }
+    });
+
+    // --- Paste Button ---
     pasteBtn.addEventListener("click", () => {
-        // 1. Versuche die moderne API
         navigator.clipboard
             .readText()
             .then((text) => {
                 if (text) {
                     inputText.value = text;
                     inputText.focus();
+                    // Nach Paste Input speichern
+                    chrome.storage.local.set({ lastInput: text });
                 }
             })
-            .catch((err) => {
-                // 2. Fallback: Dokument-basiertes Einfügen
+            .catch(() => {
                 const tempTextArea = document.createElement("textarea");
                 document.body.appendChild(tempTextArea);
                 tempTextArea.focus();
                 document.execCommand("paste");
                 const text = tempTextArea.value;
-
                 if (text) {
                     inputText.value = text;
                     inputText.focus();
+                    chrome.storage.local.set({ lastInput: text });
                 }
                 document.body.removeChild(tempTextArea);
             });
     });
 
-    const clearBtn = document.getElementById("clearBtn");
-
+    // --- Clear Button ---
     clearBtn.addEventListener("click", () => {
         inputText.value = "";
         inputText.focus();
+        chrome.storage.local.set({ lastInput: "" });
     });
 
     function sendTextToContent(text) {
