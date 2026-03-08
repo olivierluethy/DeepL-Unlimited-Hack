@@ -268,6 +268,14 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
       <li><a class="dropdown-item" href="#" data-id="${entry.id}" data-format="csv">CSV</a></li>
     </ul>
   </div>
+<button class="btn btn-outline-danger btn-sm delete-btn d-flex align-items-center" data-id="${entry.id}" style="font-size: 0.75rem; padding: 0.25rem 0.4rem;">
+  <svg xmlns="http://www.w3.org" width="14" height="14" fill="currentColor" class="bi bi-trash me-1" viewBox="0 0 16 16">
+    <path d="M5.5 5.5A.5.5 0 0 1 6 6v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m2.5 0a.5.5 0 0 1 .5.5v6a.5.5 0 0 1-1 0V6a.5.5 0 0 1 .5-.5m3 .5a.5.5 0 0 0-1 0v6a.5.5 0 0 0 1 0z"/>
+    <path d="M14.5 3a1 1 0 0 1-1 1H13v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4h-.5a1 1 0 0 1-1-1V2a1 1 0 0 1 1-1H6a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1h3.5a1 1 0 0 1 1 1zM4.118 4 4 4.059V13a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1V4.059L11.882 4zM2.5 3h11V2h-11z"/>
+  </svg>
+  Delete
+</button>
+
 </div>
         </div>
       </div>
@@ -304,6 +312,19 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
               downloadEntry(entry.id, e.target.getAttribute("data-format"));
             });
           });
+
+          // Event: Delete Button
+item.querySelector(".delete-btn").addEventListener("click", () => {
+    if (confirm("Are you sure you want to delete this entry?")) {
+        chrome.storage.local.get({ verlauf: [] }, (result) => {
+            const neuerVerlauf = result.verlauf.filter(e => e.id !== entry.id);
+            chrome.storage.local.set({ verlauf: neuerVerlauf }, () => {
+                // UI sofort aktualisieren
+                loadHistory(); 
+            });
+        });
+    }
+});
 
           // Event Listener für Buttons bleiben unverändert...
           historyList.appendChild(item);
