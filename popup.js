@@ -266,6 +266,7 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
       <li><a class="dropdown-item" href="#" data-id="${entry.id}" data-format="txt">TXT</a></li>
       <li><a class="dropdown-item" href="#" data-id="${entry.id}" data-format="json">JSON</a></li>
       <li><a class="dropdown-item" href="#" data-id="${entry.id}" data-format="csv">CSV</a></li>
+      <li><a class="dropdown-item" href="#" data-id="${entry.id}" data-format="word">Word (.docx)</a></li>
     </ul>
   </div>
 <button class="btn btn-outline-danger btn-sm delete-btn d-flex align-items-center" data-id="${entry.id}" style="font-size: 0.75rem; padding: 0.25rem 0.4rem;">
@@ -353,6 +354,26 @@ item.querySelector(".delete-btn").addEventListener("click", () => {
         )}","${entry.translated.replace(/"/g, '""')}"`;
         filename = `translation_${entryId}.csv`;
         mimeType = "text/csv";
+      } else if (format === "word") {
+        // Wir nutzen HTML-Content, deklarieren ihn aber explizit für Word
+        const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' "+
+                       "xmlns:w='urn:schemas-microsoft-com:office:word' "+
+                       "xmlns='http://www.w3.org'>"+
+                       "<head><meta charset='utf-8'></head><body>";
+        const footer = "</body></html>";
+        
+        const body = `
+          <h3 style="color: #6c757d; font-family: sans-serif;">Original:</h3>
+          <p style="font-family: Arial; white-space: pre-wrap;">${entry.original.replace(/\n/g, '<br>')}</p>
+          <hr>
+          <h3 style="color: #0d6efd; font-family: sans-serif;">Converted:</h3>
+          <p style="font-family: Arial; white-space: pre-wrap;">${entry.translated.replace(/\n/g, '<br>')}</p>
+        `;
+        
+        content = header + body + footer;
+        filename = `translation_${entryId}.docx`;
+        // Wichtig: Office-spezifischer MIME-Type für Word-Dokumente
+        mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
       }
 
       const blob = new Blob([content], { type: mimeType });
