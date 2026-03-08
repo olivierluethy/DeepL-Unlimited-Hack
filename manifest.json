@@ -28,7 +28,7 @@
   "host_permissions": ["*://www.deepl.com/*"],
   "web_accessible_resources": [
     {
-      "resources": ["lib/*"],
+      "resources": ["lib/*", "js/*"],
       "matches": ["<all_urls>"]
     }
   ]

@@ -319,17 +319,19 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
           });
 
           // Event: Delete Button
-item.querySelector(".delete-btn").addEventListener("click", () => {
-    if (confirm("Are you sure you want to delete this entry?")) {
-        chrome.storage.local.get({ verlauf: [] }, (result) => {
-            const neuerVerlauf = result.verlauf.filter(e => e.id !== entry.id);
-            chrome.storage.local.set({ verlauf: neuerVerlauf }, () => {
-                // UI sofort aktualisieren
-                loadHistory(); 
-            });
-        });
-    }
-});
+          item.querySelector(".delete-btn").addEventListener("click", () => {
+            if (confirm("Are you sure you want to delete this entry?")) {
+              chrome.storage.local.get({ verlauf: [] }, (result) => {
+                const neuerVerlauf = result.verlauf.filter(
+                  (e) => e.id !== entry.id,
+                );
+                chrome.storage.local.set({ verlauf: neuerVerlauf }, () => {
+                  // UI sofort aktualisieren
+                  loadHistory();
+                });
+              });
+            }
+          });
 
           // Event Listener für Buttons bleiben unverändert...
           historyList.appendChild(item);
@@ -360,106 +362,74 @@ item.querySelector(".delete-btn").addEventListener("click", () => {
         mimeType = "text/csv";
       } else if (format === "word") {
         // Wir nutzen HTML-Content, deklarieren ihn aber explizit für Word
-        const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' "+
-                       "xmlns:w='urn:schemas-microsoft-com:office:word' "+
-                       "xmlns='http://www.w3.org'>"+
-                       "<head><meta charset='utf-8'></head><body>";
+        const header =
+          "<html xmlns:o='urn:schemas-microsoft-com:office:office' " +
+          "xmlns:w='urn:schemas-microsoft-com:office:word' " +
+          "xmlns='http://www.w3.org'>" +
+          "<head><meta charset='utf-8'></head><body>";
         const footer = "</body></html>";
-        
+
         const body = `
           <h3 style="color: #6c757d; font-family: sans-serif;">Original:</h3>
-          <p style="font-family: Arial; white-space: pre-wrap;">${entry.original.replace(/\n/g, '<br>')}</p>
+          <p style="font-family: Arial; white-space: pre-wrap;">${entry.original.replace(/\n/g, "<br>")}</p>
           <hr>
           <h3 style="color: #0d6efd; font-family: sans-serif;">Converted:</h3>
-          <p style="font-family: Arial; white-space: pre-wrap;">${entry.translated.replace(/\n/g, '<br>')}</p>
+          <p style="font-family: Arial; white-space: pre-wrap;">${entry.translated.replace(/\n/g, "<br>")}</p>
         `;
-        
+
         content = header + body + footer;
         filename = `translation_${entryId}.docx`;
         // Wichtig: Office-spezifischer MIME-Type für Word-Dokumente
-        mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        mimeType =
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
       } else if (format === "pdf") {
-    const datum = new Date(entry.timestamp).toLocaleString("de-DE", {
-        day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit"
-    });
+        const { jsPDF } = window.jspdf;
 
-    // Blaues Übersetzer-Icon als SVG Base64
-    const logoSvg = `data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJub25lIiBzdHJva2U9IiMwZDYlZmQiIHN0cm9rZS13aWR0aD0iMiIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIiBzdHJva2UtbGluZWpvaW49InJvdW5kIj48cGF0aCBkPSJNOTIycS40OCAwaC02LjA4bC0uOTQtMi42MkgxMi43MmwtLjk2IDIuNjJINC44bDUuMTYtMTQuMDFoNC44OEwyMCAyMnptLTguNzUtNi4zMWwtMS45NC01LjM1LTEuOTQgNS4zNWgzLjg4ek0yIDEyaDJtMTggMGgybS03IDhoMn0iPjwvcGF0aD48L3N2Zz4=`;
+        const datum = new Date(entry.timestamp).toLocaleString("de-DE", {
+          day: "2-digit",
+          month: "2-digit",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        });
 
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(`
-      <html>
-        <head>
-          <title>Translation Export - ${entry.id}</title>
-          <style>
-            @media print { @page { margin: 1.5cm; } }
-            body { font-family: 'Segoe UI', Tahoma, Helvetica, sans-serif; color: #2c3e50; line-height: 1.6; padding: 30px; }
-            
-            /* Logo & Header Style */
-            .header { display: flex; justify-content: space-between; align-items: center; border-bottom: 3px solid #0d6efd; padding-bottom: 15px; margin-bottom: 35px; }
-            .logo-container { display: flex; align-items: center; gap: 12px; }
-            .logo-text { font-size: 1.4rem; font-weight: 800; color: #0d6efd; letter-spacing: -0.5px; }
-            .logo-icon { width: 32px; height: 32px; }
-            
-            .date-info { text-align: right; color: #95a5a6; font-size: 0.85rem; }
-            
-            .section { margin-bottom: 30px; }
-            .section-label { font-size: 0.75rem; font-weight: bold; text-transform: uppercase; color: #7f8c8d; margin-bottom: 10px; display: flex; align-items: center; gap: 5px; }
-            
-            .content-box { 
-                background: #ffffff; 
-                border: 1px solid #e1e8ed; 
-                border-radius: 8px; 
-                padding: 20px; 
-                white-space: pre-wrap; 
-                word-break: break-word; 
-                font-size: 1.05rem;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-            }
-            
-            .original-box { border-left: 5px solid #bdc3c7; }
-            .converted-box { border-left: 5px solid #0d6efd; background-color: #f8fbff; }
-            
-            .footer { position: fixed; bottom: 30px; left: 0; right: 0; text-align: center; font-size: 0.7rem; color: #bdc3c7; }
-          </style>
-        </head>
-        <body>
-          <div class="header">
-            <div class="logo-container">
-              <img src="${logoSvg}" class="logo-icon" alt="Logo">
-              <div class="logo-text">AI TRANSLATOR PRO</div>
-            </div>
-            <div class="date-info">
-              <div>DOKUMENT-ID: #${entry.id}</div>
-              <div style="font-weight: bold;">${datum}</div>
-            </div>
-          </div>
+        const doc = new jsPDF();
 
-          <div class="section">
-            <div class="section-label">● Originaler Quelltext</div>
-            <div class="content-box original-box">${entry.original}</div>
-          </div>
+        let y = 20;
 
-          <div class="section">
-            <div class="section-label" style="color: #0d6efd;">● Konvertiertes Ergebnis</div>
-            <div class="content-box converted-box">${entry.translated}</div>
-          </div>
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(16);
+        doc.text("AI TRANSLATOR PRO", 20, y);
 
-          <div class="footer">
-            Dieses Dokument wurde automatisch erstellt. Vertrauliche Inhalte &copy; ${new Date().getFullYear()}
-          </div>
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "normal");
+        doc.text(`ID: #${entry.id}`, 150, y);
+        doc.text(datum, 150, y + 5);
 
-          <script>
-            setTimeout(() => { 
-                window.print(); 
-                window.onafterprint = () => window.close();
-            }, 600);
-          </script>
-        </body>
-      </html>
-    `);
-    printWindow.document.close();
-    return;
+        y += 15;
+
+        doc.setFontSize(12);
+        doc.setFont("helvetica", "bold");
+        doc.text("ORIGINAL:", 20, y);
+
+        y += 8;
+        doc.setFont("helvetica", "normal");
+        const originalLines = doc.splitTextToSize(entry.original, 170);
+        doc.text(originalLines, 20, y);
+
+        y += originalLines.length * 7 + 10;
+
+        doc.setFont("helvetica", "bold");
+        doc.text("CONVERTED:", 20, y);
+
+        y += 8;
+        doc.setFont("helvetica", "normal");
+        const translatedLines = doc.splitTextToSize(entry.translated, 170);
+        doc.text(translatedLines, 20, y);
+
+        doc.save(`translation_${entry.id}.pdf`);
+
+        return; // ⭐ WICHTIG
       } else if (format === "md") {
         content = `### Original\n\n${entry.original}\n\n---\n\n### Converted\n\n${entry.translated}`;
         filename = `translation_${entryId}.md`;
