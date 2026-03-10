@@ -1,113 +1,161 @@
 async function sendTextToDeepL(text) {
-    if (!text.trim()) return;
+  if (!text.trim()) return;
 
-    const [tab] = await chrome.tabs.query({
-        active: true,
-        currentWindow: true,
-    });
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true,
+  });
 
-    await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        function: (payload) => {
-            window.postMessage({ type: "DEEPL_TRANSLATE", payload }, "*");
-        },
-        args: [text],
-    });
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    function: (payload) => {
+      window.postMessage({ type: "DEEPL_TRANSLATE", payload }, "*");
+    },
+    args: [text],
+  });
+}
+
+async function sendWithRetry(text, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      await sendTextToDeepL(text);
+
+      return true;
+    } catch (err) {
+      console.warn("Retry attempt", i + 1);
+
+      await wait(1000);
+    }
+  }
+
+  console.error("Translation failed");
+
+  return false;
 }
 
 async function startGroupTranslation(entryDiv) {
-    const subEntries = entryDiv.querySelectorAll(".sub-entry .sub-entry-text");
+  stopTranslation = false;
 
-    if (!subEntries.length) {
-        alert("This group has no entries to translate.");
-        return;
+  const startBtn = entryDiv.querySelector(".start-group");
+  const stopBtn = entryDiv.querySelector(".stop-group");
+
+  startBtn.classList.add("d-none");
+  stopBtn.classList.remove("d-none");
+
+  const subEntries = entryDiv.querySelectorAll(".sub-entry .sub-entry-text");
+
+  if (!subEntries.length) {
+    alert("This group has no entries to translate.");
+    return;
+  }
+
+  entryDiv.dataset.used = "true";
+  await saveEntriesToStorage();
+
+  for (let i = 0; i < subEntries.length; i++) {
+    if (stopTranslation) {
+        console.log("⏹ Translation stopped");
+        break;
     }
 
-    entryDiv.dataset.used = "true";
-    await saveEntriesToStorage();
+    const text = subEntries[i].textContent.trim();
+    if (!text) continue;
 
-    for (let i = 0; i < subEntries.length; i++) {
-        const text = subEntries[i].textContent.trim();
-        if (!text) continue;
+    console.log(`🌍 Translating entry ${i + 1}/${subEntries.length}`);
 
-        console.log(`🌍 Translating entry ${i + 1}/${subEntries.length}`);
-        await sendTextToDeepL(text);
+    // ✅ Sende Text und warte 1,5 Sekunden für DeepL-UI
+    await sendWithRetry(text);
+    await wait(1500); // unveränderlich, nicht dynamisch verkleinern
+}
 
-        // ⏱️ IMPORTANT: allow DeepL UI to finish
-        await wait(1500);
-    }
-
-    console.log("✅ Group translation finished");
+  console.log("✅ Group translation finished");
+  startBtn.classList.remove("d-none");
+  stopBtn.classList.add("d-none");
 }
 
 function wait(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 let entryId = 0;
 let entryCounter = 0;
+let stopTranslation = false;
 
 // -----------------------------
 // Speicher-Helper
 // -----------------------------
 async function saveEntriesToStorage() {
-    const entries = [];
-    document.querySelectorAll(".loop-entry").forEach((entry) => {
-        const entryObj = {
-            id: entry.id,
-            name: entry.querySelector(".entry-header .sub-entry-text").textContent,
-            date: entry.dataset.date || new Date().toISOString(),
-            used: entry.dataset.used === "true",
-            subEntries: [],
-        };
+  const entries = [];
+  document.querySelectorAll(".loop-entry").forEach((entry) => {
+    const entryObj = {
+      id: entry.id,
+      name: entry.querySelector(".entry-header .sub-entry-text").textContent,
+      date: entry.dataset.date || new Date().toISOString(),
+      used: entry.dataset.used === "true",
+      subEntries: [],
+    };
 
-        entry.querySelectorAll(".sub-entry").forEach((sub) => {
-            entryObj.subEntries.push({
-                text: sub.querySelector(".sub-entry-text").textContent,
-                date: sub.dataset.date || new Date().toISOString(),
-            });
-        });
-
-        entries.push(entryObj);
+    entry.querySelectorAll(".sub-entry").forEach((sub) => {
+      entryObj.subEntries.push({
+        text: sub.querySelector(".sub-entry-text").textContent,
+        date: sub.dataset.date || new Date().toISOString(),
+      });
     });
 
-    await chrome.storage.local.set({ loopEntries: entries });
-    console.log("✅ Loop entries saved:", entries);
+    entries.push(entryObj);
+  });
+
+  await chrome.storage.local.set({ loopEntries: entries });
+  console.log("✅ Loop entries saved:", entries);
 }
 
 async function loadEntriesFromStorage() {
-    const result = await chrome.storage.local.get("loopEntries");
-    const entries = result.loopEntries || [];
-    console.log("📦 Loaded loop entries:", entries);
+  const result = await chrome.storage.local.get("loopEntries");
+  const entries = result.loopEntries || [];
+  console.log("📦 Loaded loop entries:", entries);
 
-    const container = document.getElementById("entriesContainer");
-    container.innerHTML = "";
-    entryCounter = 0;
+  const container = document.getElementById("entriesContainer");
+  container.innerHTML = "";
+  entryCounter = 0;
 
-    entries.forEach((entry) => {
-        renderEntry(entry, container);
-    });
+  // 🔹 NEU: Meldung anzeigen wenn keine Einträge existieren
+  if (entries.length === 0) {
+    container.innerHTML = `
+    <div class="alert alert-info text-center d-flex align-items-center justify-content-center gap-2 fade show" role="alert" style="animation: fadeIn 0.4s ease;">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="currentColor" class="bi bi-info-circle" viewBox="0 0 16 16">
+            <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/>
+            <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0"/>
+        </svg>
+        <span>No batch translations have been added yet.</span>
+    </div>
+`;
+    return;
+  }
 
-    updateEntryNumbers();
+  entries.forEach((entry) => {
+    renderEntry(entry, container);
+  });
+
+  updateEntryNumbers();
 }
 
 // -----------------------------
 // Render-Funktion für gespeicherte Daten
 // -----------------------------
 function renderEntry(entryData, container) {
-    entryId++;
-    entryCounter++;
+  entryId++;
+  entryCounter++;
 
-    const entryDiv = document.createElement("div");
-    entryDiv.className = "loop-entry";
-    entryDiv.id = entryData.id || `entry-${entryId}`;
-    entryDiv.dataset.entryNumber = entryCounter;
-    entryDiv.dataset.date = entryData.date || new Date().toISOString();
-    entryDiv.dataset.used = entryData.used || false;
+  const entryDiv = document.createElement("div");
+  entryDiv.className = "loop-entry";
+  entryDiv.id = entryData.id || `entry-${entryId}`;
+  entryDiv.dataset.entryNumber = entryCounter;
+  entryDiv.dataset.date = entryData.date || new Date().toISOString();
+  entryDiv.dataset.used = entryData.used || false;
 
-    const header = document.createElement("div");
-    header.className = "entry-header";
-    header.innerHTML = `
+  const header = document.createElement("div");
+  header.className = "entry-header";
+  header.innerHTML = `
     <span>
       <span class="entry-number fw-bold">${entryCounter}.</span>
       <div class="sub-entry-text">${entryData.name}</div>
@@ -143,21 +191,24 @@ function renderEntry(entryData, container) {
   </svg>
   Start
 </button>
+<button class="btn btn-warning btn-sm stop-group d-none">
+⏹ Stop
+</button>
     </span>
   `;
-    entryDiv.appendChild(header);
+  entryDiv.appendChild(header);
 
-    const subContainer = document.createElement("div");
-    subContainer.className = "sub-container collapse";
-    subContainer.dataset.subEntryCounter = entryData.subEntries?.length || 0;
-    entryDiv.appendChild(subContainer);
+  const subContainer = document.createElement("div");
+  subContainer.className = "sub-container collapse";
+  subContainer.dataset.subEntryCounter = entryData.subEntries?.length || 0;
+  entryDiv.appendChild(subContainer);
 
-    if (entryData.subEntries) {
-        entryData.subEntries.forEach((sub, i) => {
-            const subDiv = document.createElement("div");
-            subDiv.className = "sub-entry";
-            subDiv.dataset.date = sub.date || new Date().toISOString();
-            subDiv.innerHTML = `
+  if (entryData.subEntries) {
+    entryData.subEntries.forEach((sub, i) => {
+      const subDiv = document.createElement("div");
+      subDiv.className = "sub-entry";
+      subDiv.dataset.date = sub.date || new Date().toISOString();
+      subDiv.innerHTML = `
         <span class="sub-entry-number fw-bold">${entryCounter}.${i + 1}</span>
         <div class="sub-entry-text">${sub.text}</div>
         <span class="toggle-text">Show more</span>
@@ -166,112 +217,187 @@ function renderEntry(entryData, container) {
           <button class="btn btn-outline-danger btn-sm delete-sub">🗑️ Delete</button>
         </span>
       `;
-            subContainer.appendChild(subDiv);
-            updateTextToggle(subDiv);
-        });
-    }
+      subContainer.appendChild(subDiv);
+      updateTextToggle(subDiv);
+    });
+  }
 
-    const subInputGroup = document.createElement("div");
-    subInputGroup.className = "input-group mb-2 mt-2";
-    subInputGroup.innerHTML = `
-    <textarea class="form-control sub-input" placeholder="New subentry..." rows="2"></textarea>
+  const subInputGroup = document.createElement("div");
+  subInputGroup.className = "input-group mb-2 mt-2";
+  subInputGroup.innerHTML = `
+  <textarea class="form-control sub-input" placeholder="New subentry..." rows="2"></textarea>
+
+  <div class="flex gap-1 mt-1">
     <button class="btn btn-outline-primary btn-sm addSubEntry">➕ Add</button>
-  `;
-    subContainer.appendChild(subInputGroup);
+    <button class="btn btn-outline-secondary btn-sm copySubEntry">📋 Copy</button>
+    <button class="btn btn-outline-secondary btn-sm pasteSubEntry">📥 Paste</button>
+    <button class="btn btn-outline-danger btn-sm clearSubEntry">🗑️ Clear</button>
+  </div>
+`;
 
-    container.prepend(entryDiv);
+  subContainer.appendChild(subInputGroup);
 
-    // Initialize Bootstrap collapse
-    const collapse = new bootstrap.Collapse(subContainer, {
-        toggle: false,
+  // Optional: Event Listener Beispiel
+  const textarea = subInputGroup.querySelector(".sub-input");
+
+  // Add Button
+  subInputGroup.querySelector(".addSubEntry").addEventListener("click", () => {
+    console.log("Add subentry:", textarea.value);
+  });
+
+  // Copy Button
+  subInputGroup.querySelector(".copySubEntry").addEventListener("click", () => {
+    navigator.clipboard.writeText(textarea.value);
+    console.log("Copied:", textarea.value);
+  });
+
+  // Paste Button
+  subInputGroup
+    .querySelector(".pasteSubEntry")
+    .addEventListener("click", async () => {
+      const clipText = await navigator.clipboard.readText();
+      textarea.value = clipText;
+      console.log("Pasted:", clipText);
     });
 
-    // Add click event for details button
-    header.querySelector(".details-entry").addEventListener("click", (e) => {
-        const isExpanded = subContainer.classList.contains("show");
-        collapse.toggle();
+  // Clear Button
+  subInputGroup
+    .querySelector(".clearSubEntry")
+    .addEventListener("click", () => {
+      textarea.value = "";
+      console.log("Cleared");
+    });
 
-        const btn = e.currentTarget;
+  container.prepend(entryDiv);
 
-        if (isExpanded) {
-            // Zurück zu "Details" (Blau)
-            btn.classList.replace("btn-outline-danger", "btn-outline-primary");
-            btn.innerHTML = `
+  // Initialize Bootstrap collapse
+  const collapse = new bootstrap.Collapse(subContainer, {
+    toggle: false,
+  });
+
+  // Add click event for details button
+  header.querySelector(".details-entry").addEventListener("click", (e) => {
+    const isExpanded = subContainer.classList.contains("show");
+    collapse.toggle();
+
+    const btn = e.currentTarget;
+
+    if (isExpanded) {
+      // Zurück zu "Details" (Blau)
+      btn.classList.replace("btn-outline-danger", "btn-outline-primary");
+      btn.innerHTML = `
       <svg xmlns="http://www.w3.org" width="16" height="16" fill="currentColor" class="bi bi-info-circle me-1" viewBox="0 0 16 16">
         <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/>
         <path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0"/>
       </svg> Details`;
-        } else {
-            // Wechsel zu "Close" (Rot)
-            btn.classList.replace("btn-outline-primary", "btn-outline-danger");
-            btn.innerHTML = `
+    } else {
+      // Wechsel zu "Close" (Rot)
+      btn.classList.replace("btn-outline-primary", "btn-outline-danger");
+      btn.innerHTML = `
       <svg xmlns="http://www.w3.org" width="16" height="16" fill="currentColor" class="bi bi-x-circle me-1" viewBox="0 0 16 16">
         <path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/>
         <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708"/>
       </svg> Close`;
-        }
-    });
+    }
+  });
 }
 
 // -----------------------------
 // Events
 // -----------------------------
 document.getElementById("addLoop").addEventListener("click", function () {
-    const input = document.getElementById("mainEntryInput");
-    const value = input.value.trim();
-    if (!value) return;
+  const input = document.getElementById("mainEntryInput");
+  const value = input.value.trim();
+  if (!value) return;
 
-    const newEntry = {
-        id: `entry-${Date.now()}`,
-        name: value,
-        date: new Date().toISOString(),
-        used: false,
-        subEntries: [],
-    };
+  const newEntry = {
+    id: `entry-${Date.now()}`,
+    name: value,
+    date: new Date().toISOString(),
+    used: false,
+    subEntries: [],
+  };
 
-    const container = document.getElementById("entriesContainer");
-    renderEntry(newEntry, container);
-    updateEntryNumbers();
-    input.value = "";
+  const container = document.getElementById("entriesContainer");
 
-    saveEntriesToStorage();
+  // 🔹 NEU: Entfernt die "keine Einträge" Meldung
+  const alert = container.querySelector(".alert");
+  if (alert) alert.remove();
+
+  renderEntry(newEntry, container);
+  updateEntryNumbers();
+  input.value = "";
+
+  saveEntriesToStorage();
 });
 
-document.getElementById("entriesContainer").addEventListener("click", function (e) {
-    if (e.target.classList.contains("addSubEntry")) {
-        addSubEntry(e.target);
-    } else if (e.target.classList.contains("toggle-text")) {
-        toggleText(e.target);
-    } else if (e.target.classList.contains("edit-entry")) {
-        startEditText(e.target, "entry");
-    } else if (e.target.classList.contains("delete-entry")) {
-        deleteEntry(e.target, "entry");
-    } else if (e.target.classList.contains("edit-sub")) {
-        startEditText(e.target, "sub");
-    } else if (e.target.classList.contains("delete-sub")) {
-        deleteEntry(e.target, "sub");
-    } else if (e.target.classList.contains("save-edit")) {
-        saveEditText(e.target);
-    } else if (e.target.classList.contains("start-group")) {
-        const entryDiv = e.target.closest(".loop-entry");
-        startGroupTranslation(entryDiv);
+// 🔹 NEU: Enter-Taste erstellt neuen Eintrag
+document
+  .getElementById("mainEntryInput")
+  .addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      document.getElementById("addLoop").click();
     }
-});
+  });
+
+document
+  .getElementById("entriesContainer")
+  .addEventListener("click", function (e) {
+    if (e.target.classList.contains("addSubEntry")) {
+      addSubEntry(e.target);
+    } else if (e.target.classList.contains("toggle-text")) {
+      toggleText(e.target);
+    } else if (e.target.classList.contains("edit-entry")) {
+      startEditText(e.target, "entry");
+    } else if (e.target.classList.contains("delete-entry")) {
+      deleteEntry(e.target, "entry");
+    } else if (e.target.classList.contains("edit-sub")) {
+      startEditText(e.target, "sub");
+    } else if (e.target.classList.contains("delete-sub")) {
+      deleteEntry(e.target, "sub");
+    } else if (e.target.classList.contains("save-edit")) {
+      saveEditText(e.target);
+    } else if (e.target.classList.contains("start-group")) {
+      const entryDiv = e.target.closest(".loop-entry");
+      startGroupTranslation(entryDiv);
+    } else if (e.target.classList.contains("stop-group")) {
+      stopTranslation = true;
+    }
+  });
+
+// 🔹 NEU: Enter erstellt Subentry
+document
+  .getElementById("entriesContainer")
+  .addEventListener("keydown", function (e) {
+    if (
+      e.target.classList.contains("sub-input") &&
+      e.key === "Enter" &&
+      !e.shiftKey
+    ) {
+      e.preventDefault();
+
+      const entryDiv = e.target.closest(".loop-entry");
+      const addBtn = entryDiv.querySelector(".addSubEntry");
+
+      if (addBtn) addBtn.click();
+    }
+  });
 
 function addSubEntry(btn) {
-    const entryDiv = btn.closest(".loop-entry");
-    const subContainer = entryDiv.querySelector(".sub-container");
-    const subInput = entryDiv.querySelector(".sub-input");
-    const text = subInput.value.trim();
-    if (!text) return;
+  const entryDiv = btn.closest(".loop-entry");
+  const subContainer = entryDiv.querySelector(".sub-container");
+  const subInput = entryDiv.querySelector(".sub-input");
+  const text = subInput.value.trim();
+  if (!text) return;
 
-    const subEntryCounter = parseInt(subContainer.dataset.subEntryCounter) + 1;
-    subContainer.dataset.subEntryCounter = subEntryCounter;
+  const subEntryCounter = parseInt(subContainer.dataset.subEntryCounter) + 1;
+  subContainer.dataset.subEntryCounter = subEntryCounter;
 
-    const subDiv = document.createElement("div");
-    subDiv.className = "sub-entry";
-    subDiv.dataset.date = new Date().toISOString();
-    subDiv.innerHTML = `
+  const subDiv = document.createElement("div");
+  subDiv.className = "sub-entry";
+  subDiv.dataset.date = new Date().toISOString();
+  subDiv.innerHTML = `
     <span class="sub-entry-number fw-bold">${entryDiv.dataset.entryNumber}.${subEntryCounter}</span>
     <div class="sub-entry-text">${text}</div>
     <span class="toggle-text">Mehr anzeigen</span>
@@ -280,110 +406,114 @@ function addSubEntry(btn) {
       <button class="btn btn-outline-danger btn-sm delete-sub">🗑️ Delete</button>
     </span>
   `;
-    subContainer.insertBefore(subDiv, subContainer.querySelector(".input-group"));
-    subInput.value = "";
+  subContainer.insertBefore(subDiv, subContainer.querySelector(".input-group"));
+  subInput.value = "";
+  subInput.focus();
 
-    updateTextToggle(subDiv);
-    saveEntriesToStorage();
+  updateTextToggle(subDiv);
+  saveEntriesToStorage();
 
-    // Ensure sub-container is visible when adding a new sub-entry
-    const collapse = new bootstrap.Collapse(subContainer, { toggle: false });
-    if (!subContainer.classList.contains("show")) {
-        collapse.show();
-        entryDiv.querySelector(".details-entry").textContent = "Close";
-    }
+  // Ensure sub-container is visible when adding a new sub-entry
+  const collapse = new bootstrap.Collapse(subContainer, { toggle: false });
+  if (!subContainer.classList.contains("show")) {
+    collapse.show();
+    entryDiv.querySelector(".details-entry").textContent = "Close";
+  }
 }
 
 // -----------------------------
 // Edit / Delete / Save
 // -----------------------------
 function startEditText(btn, type) {
-    const parent = type === "entry" ? btn.closest(".loop-entry") : btn.closest(".sub-entry");
-    const textElement = parent.querySelector(".sub-entry-text");
-    const currentText = textElement.textContent;
+  const parent =
+    type === "entry" ? btn.closest(".loop-entry") : btn.closest(".sub-entry");
+  const textElement = parent.querySelector(".sub-entry-text");
+  const currentText = textElement.textContent;
 
-    const textarea = document.createElement("textarea");
-    textarea.className = "form-control";
-    textarea.value = currentText;
-    if (type === "sub") textarea.rows = 2;
+  const textarea = document.createElement("textarea");
+  textarea.className = "form-control";
+  textarea.value = currentText;
+  if (type === "sub") textarea.rows = 2;
 
-    textElement.replaceWith(textarea);
-    textarea.focus();
+  textElement.replaceWith(textarea);
+  textarea.focus();
 
-    btn.textContent = "💾 Save";
-    btn.classList.remove("edit-entry", "edit-sub");
-    btn.classList.add("save-edit");
+  btn.textContent = "💾 Save";
+  btn.classList.remove("edit-entry", "edit-sub");
+  btn.classList.add("save-edit");
 }
 
 function saveEditText(btn) {
-    const parent = btn.closest(".loop-entry") || btn.closest(".sub-entry");
-    const textarea = parent.querySelector("textarea");
-    const type = btn.closest(".loop-entry") ? "entry" : "sub";
-    const textElement = document.createElement("div");
-    textElement.className = "sub-entry-text";
-    const newText = textarea.value.trim();
+  const parent = btn.closest(".loop-entry") || btn.closest(".sub-entry");
+  const textarea = parent.querySelector("textarea");
+  const type = btn.closest(".loop-entry") ? "entry" : "sub";
+  const textElement = document.createElement("div");
+  textElement.className = "sub-entry-text";
+  const newText = textarea.value.trim();
 
-    if (newText) {
-        textElement.textContent = newText;
-        textarea.replaceWith(textElement);
-        if (type === "sub") updateTextToggle(parent);
-    } else {
-        textarea.replaceWith(textElement);
-    }
+  if (newText) {
+    textElement.textContent = newText;
+    textarea.replaceWith(textElement);
+    if (type === "sub") updateTextToggle(parent);
+  } else {
+    textarea.replaceWith(textElement);
+  }
 
-    btn.textContent = "✏️ Edit";
-    btn.classList.remove("save-edit");
-    btn.classList.add(type === "entry" ? "edit-entry" : "edit-sub");
+  btn.textContent = "✏️ Edit";
+  btn.classList.remove("save-edit");
+  btn.classList.add(type === "entry" ? "edit-entry" : "edit-sub");
 
-    saveEntriesToStorage();
+  saveEntriesToStorage();
 }
 
 function deleteEntry(btn, type) {
-    const parent = type === "entry" ? btn.closest(".loop-entry") : btn.closest(".sub-entry");
-    parent.remove();
-    if (type === "entry") updateEntryNumbers();
-    saveEntriesToStorage();
+  const parent =
+    type === "entry" ? btn.closest(".loop-entry") : btn.closest(".sub-entry");
+  parent.remove();
+  if (type === "entry") updateEntryNumbers();
+  saveEntriesToStorage();
 }
 
 // -----------------------------
 // Helpers
 // -----------------------------
 function updateEntryNumbers() {
-    const entries = document.querySelectorAll(".loop-entry");
-    entryCounter = entries.length;
-    entries.forEach((entry, index) => {
-        const number = entryCounter - index;
-        entry.dataset.entryNumber = number;
-        entry.querySelector(".entry-number").textContent = `${number}.`;
-        const subEntries = entry.querySelectorAll(".sub-entry");
-        subEntries.forEach((sub, subIndex) => {
-            sub.querySelector(".sub-entry-number").textContent = `${number}.${subIndex + 1}`;
-        });
+  const entries = document.querySelectorAll(".loop-entry");
+  entryCounter = entries.length;
+  entries.forEach((entry, index) => {
+    const number = entryCounter - index;
+    entry.dataset.entryNumber = number;
+    entry.querySelector(".entry-number").textContent = `${number}.`;
+    const subEntries = entry.querySelectorAll(".sub-entry");
+    subEntries.forEach((sub, subIndex) => {
+      sub.querySelector(".sub-entry-number").textContent =
+        `${number}.${subIndex + 1}`;
     });
+  });
 }
 
 function updateTextToggle(subDiv) {
-    const textDiv = subDiv.querySelector(".sub-entry-text");
-    const toggle = subDiv.querySelector(".toggle-text");
-    if (!textDiv || !toggle) return;
+  const textDiv = subDiv.querySelector(".sub-entry-text");
+  const toggle = subDiv.querySelector(".toggle-text");
+  if (!textDiv || !toggle) return;
 
-    if (textDiv.scrollHeight > textDiv.clientHeight) {
-        toggle.style.display = "inline-block";
-        toggle.textContent = "Show more";
-    } else {
-        toggle.style.display = "none";
-    }
+  if (textDiv.scrollHeight > textDiv.clientHeight) {
+    toggle.style.display = "inline-block";
+    toggle.textContent = "Show more";
+  } else {
+    toggle.style.display = "none";
+  }
 }
 
 function toggleText(toggle) {
-    const textDiv = toggle.previousElementSibling;
-    if (textDiv.classList.contains("expanded")) {
-        textDiv.classList.remove("expanded");
-        toggle.textContent = "Show more";
-    } else {
-        textDiv.classList.add("expanded");
-        toggle.textContent = "Show less";
-    }
+  const textDiv = toggle.previousElementSibling;
+  if (textDiv.classList.contains("expanded")) {
+    textDiv.classList.remove("expanded");
+    toggle.textContent = "Show more";
+  } else {
+    textDiv.classList.add("expanded");
+    toggle.textContent = "Show less";
+  }
 }
 
 // -----------------------------
