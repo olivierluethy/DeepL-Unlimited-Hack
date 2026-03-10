@@ -26,11 +26,12 @@ window.addEventListener("message", async (event) => {
   const chunks = splitText(fullText, maxLength);
   const results = [];
 
-  for (let i = 0; i < chunks.length; i++) {
-    await insertAndTranslate(chunks[i]);
-    const translated = await getTranslatedText();
+    for (let i = 0; i < chunks.length; i++) {
+    await insertAndTranslate(chunks[i]); // Wartet intern bereits, bis Text da ist
+    const translated = getTranslatedText(); // Liest den Text einfach nur aus
     results.push(translated);
   }
+
 
   const finalText = results.join("\n\n");
 
@@ -110,24 +111,59 @@ function splitText(text, maxLength) {
 }
 
 async function insertAndTranslate(text) {
-  const sourceInput = document.querySelector(
-    "[data-testid='translator-source-input'] [role='textbox']",
-  );
-  sourceInput.innerText = "";
+  const sourceInput = document.querySelector("[data-testid='translator-source-input'] [role='textbox']");
+  const targetInput = document.querySelector("[data-testid='translator-target-input'] [role='textbox']");
+  
+  if (targetInput) targetInput.textContent = ""; 
+  
+  if (sourceInput) {
+    sourceInput.focus(); // Fokus setzen verbessert die Erkennung
+    sourceInput.textContent = "";
+    sourceInput.textContent = text;
+    sourceInput.dispatchEvent(new InputEvent("input", { bubbles: true }));
+  }
 
-  const event = new InputEvent("input", { bubbles: true });
-  sourceInput.textContent = text;
-  sourceInput.dispatchEvent(event);
-
-  await new Promise((r) => setTimeout(r, 2500));
+  await waitForTranslation();
 }
 
-async function getTranslatedText() {
-  const targetInput = document.querySelector(
-    "[data-testid='translator-target-input'] [role='textbox']",
-  );
-  return targetInput?.textContent || "";
+function waitForTranslation() {
+  return new Promise((resolve) => {
+    const targetInput = document.querySelector("[data-testid='translator-target-input'] [role='textbox']");
+    
+    if (!targetInput) {
+      // Falls das Element noch nicht da ist, kurz warten und erneut versuchen
+      setTimeout(() => resolve(waitForTranslation()), 500);
+      return;
+    }
+
+    const observer = new MutationObserver(() => {
+      const currentText = targetInput.textContent.trim();
+      if (currentText.length > 0) {
+        setTimeout(() => {
+          observer.disconnect();
+          resolve();
+        }, 1000); // 1 Sekunde Puffer für "Text-Streaming"
+      }
+    });
+
+    observer.observe(targetInput, {
+      childList: true,
+      characterData: true,
+      subtree: true
+    });
+
+    setTimeout(() => {
+      observer.disconnect();
+      resolve();
+    }, 30000);
+  });
 }
+
+function getTranslatedText() {
+  const targetInput = document.querySelector("[data-testid='translator-target-input'] [role='textbox']");
+  return targetInput ? targetInput.textContent.trim() : "";
+}
+
 
 function downloadResult(content) {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
