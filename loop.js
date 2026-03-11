@@ -100,18 +100,8 @@ function removeProgressBar(entryDiv, delay = 2000) {
   }, delay);
 }
 
-const writeRegex = /^\/[^\/]+\/write/;
-const translateRegex = /^\/[^\/]+\/(translate|translator)/;
 
 async function startGroupTranslation(entryDiv) {
-  // ✅ Verification: only allow certain URLs
-  const path = window.location.pathname;
-  if (!writeRegex.test(path) && !translateRegex.test(path)) {
-    console.warn("⛔ Group translation not allowed on this page.");
-    alert("Group translation can only be started on DeepL's Write or Translate pages.");
-    return; // stop immediately
-  }
-
   stopTranslation = false;
 
   const startBtn = entryDiv.querySelector(".start-group");
@@ -350,10 +340,11 @@ function renderEntry(entryData, container) {
   header.className = "entry-header";
   header.style.cursor = "grab";
   header.innerHTML = `
-    <span>
-      <span class="entry-number fw-bold">${entryCounter}.</span>
-      <div class="sub-entry-text">${entryData.name}</div>
-    </span>
+
+  <div class="d-flex align-items-center gap-2">
+  <span class="entry-number fw-bold">${entryCounter}.</span>
+  <div class="sub-entry-text">${entryData.name}</div>
+</div>
     <span class="actions">
       <button class="btn btn-outline-primary btn-sm details-entry">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-info-circle me-1" viewBox="0 0 16 16">
@@ -552,8 +543,11 @@ function createSubEntryElement(entryNumber, subNumber, text, date) {
   subDiv.dataset.date = date || new Date().toISOString();
   subDiv.style.cursor = "grab";
   subDiv.innerHTML = `
-    <span class="sub-entry-number fw-bold">${entryNumber}.${subNumber}</span>
-    <div class="sub-entry-text">${text}</div>
+  <div class="d-flex align-items-center gap-2">
+  <span class="sub-entry-number fw-bold">${entryNumber}.${subNumber}</span>
+  <div class="sub-entry-text">${text}</div>
+</div>
+
     <span class="toggle-text">Show more</span>
     <span class="actions">
       <button class="btn btn-outline-secondary btn-sm edit-sub">✏️ Edit</button>
@@ -981,9 +975,8 @@ function deleteEntry(btn, type) {
 // -----------------------------
 function updateEntryNumbers() {
   const entries = document.querySelectorAll(".loop-entry");
-  entryCounter = entries.length;
   entries.forEach((entry, index) => {
-    const number = entryCounter - index;
+    const number = index + 1; // count from 1 upwards
     entry.dataset.entryNumber = number;
     const entryNumberSpan = entry.querySelector(".entry-number");
     if (entryNumberSpan) {
