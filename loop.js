@@ -223,19 +223,76 @@ function renderEntry(entryData, container) {
   }
 
   const subInputGroup = document.createElement("div");
-  subInputGroup.className = "input-group mb-2 mt-2";
-  subInputGroup.innerHTML = `
-  <textarea class="form-control sub-input" placeholder="New subentry..." rows="2"></textarea>
+subInputGroup.className = "sub-input-wrapper mb-3 d-none";
 
-  <div class="flex gap-1 mt-1">
-    <button class="btn btn-outline-primary btn-sm addSubEntry">➕ Add</button>
-    <button class="btn btn-outline-secondary btn-sm copySubEntry">📋 Copy</button>
-    <button class="btn btn-outline-secondary btn-sm pasteSubEntry">📥 Paste</button>
-    <button class="btn btn-outline-danger btn-sm clearSubEntry">🗑️ Clear</button>
-  </div>
+subInputGroup.innerHTML = `
+
+<div class="d-flex gap-2 mb-2">
+
+<textarea 
+class="form-control sub-input flex-grow-1" 
+placeholder="New subentry..." 
+rows="2">
+</textarea>
+
+<button class="btn btn-primary addSubEntry">
+➕ Add
+</button>
+
+</div>
+
+<div class="d-flex gap-2">
+
+<button class="btn btn-outline-secondary btn-sm copySubEntry">
+📋 Copy
+</button>
+
+<button class="btn btn-outline-secondary btn-sm pasteSubEntry">
+📥 Paste
+</button>
+
+<button class="btn btn-outline-danger btn-sm clearSubEntry">
+🗑️ Clear
+</button>
+
+</div>
 `;
+ const addSubToggle = document.createElement("button");
 
-  subContainer.appendChild(subInputGroup);
+addSubToggle.className = "btn btn-outline-primary btn-sm mb-2 toggle-sub-input";
+addSubToggle.innerHTML = `➕ Add Subentry`;
+
+subContainer.prepend(subInputGroup);
+subContainer.prepend(addSubToggle);
+
+addSubToggle.addEventListener("click", () => {
+
+const isHidden = subInputGroup.classList.contains("d-none");
+
+if (isHidden) {
+
+subInputGroup.classList.remove("d-none");
+addSubToggle.innerHTML = "❌ Close";
+
+const textarea = subInputGroup.querySelector(".sub-input");
+textarea.focus();
+
+} else {
+
+subInputGroup.classList.add("d-none");
+addSubToggle.innerHTML = "➕ Add Subentry";
+
+}
+
+});
+
+ 
+
+addSubToggle.className = "btn btn-outline-primary btn-sm mb-2 toggle-sub-input";
+
+addSubToggle.innerHTML = `
+➕ Add Subentry
+`;
 
   // Optional: Event Listener Beispiel
   const textarea = subInputGroup.querySelector(".sub-input");
@@ -406,9 +463,14 @@ function addSubEntry(btn) {
       <button class="btn btn-outline-danger btn-sm delete-sub">🗑️ Delete</button>
     </span>
   `;
-  subContainer.insertBefore(subDiv, subContainer.querySelector(".input-group"));
+  subContainer.appendChild(subDiv);
   subInput.value = "";
-  subInput.focus();
+
+const inputWrapper = entryDiv.querySelector(".sub-input-wrapper");
+const toggleBtn = entryDiv.querySelector(".toggle-sub-input");
+
+inputWrapper.classList.add("d-none");
+toggleBtn.innerHTML = "➕ Add Subentry";
 
   updateTextToggle(subDiv);
   saveEntriesToStorage();
