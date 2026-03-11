@@ -4,13 +4,14 @@
         <meta charset="UTF-8" />
         <title>DeepL Pro Unlimited</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
-        <!-- Bootstrap Icons (Zusätzlich erforderlich) -->
+        <!-- Bootstrap Icons -->
         <link
             rel="stylesheet"
             href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css"
         />
 
         <script src="js/jspdf.umd.min.js" defer></script>
+        <script src="js/Sortable.min.js" defer></script>
 
         <style>
             body {
@@ -24,7 +25,7 @@
                 padding: 15px;
                 margin-bottom: 15px;
                 background-color: #f8f9fa;
-                transition: box-shadow 0.2s;
+                transition: box-shadow 0.2s, transform 0.2s;
             }
             .loop-entry:hover {
                 box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
@@ -34,6 +35,11 @@
                 justify-content: space-between;
                 align-items: center;
                 margin-bottom: 10px;
+                cursor: grab;
+                user-select: none;
+            }
+            .entry-header:active {
+                cursor: grabbing;
             }
             .entry-header h3 {
                 margin: 0;
@@ -46,14 +52,23 @@
                 border-left: 3px solid #0d6efd;
                 background-color: #fff;
                 border-radius: 4px;
+                cursor: grab;
+                user-select: none;
+                transition: transform 0.2s, box-shadow 0.2s, opacity 0.3s;
+            }
+            .sub-entry:hover {
+                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+            }
+            .sub-entry:active {
+                cursor: grabbing;
             }
             .sub-entry-text {
-                max-height: none; /* Keine Begrenzung mehr */
-                overflow: visible; /* Vollständig anzeigen */
+                max-height: none;
+                overflow: visible;
                 position: relative;
-                font-size: 1rem; /* etwas größere Schrift für bessere Lesbarkeit */
+                font-size: 1rem;
                 line-height: 1.4;
-                white-space: normal; /* Zeilenumbruch normal */
+                white-space: normal;
             }
             .sub-entry-text.expanded {
                 max-height: none;
@@ -116,11 +131,56 @@
                 border-radius: 4px;
                 padding: 8px;
                 font-size: 0.85rem;
-                white-space: pre-wrap; /* Erlaubt Zeilenumbrüche */
-                word-wrap: break-word; /* Bricht lange Wörter */
-                max-height: 150px; /* Maximale Höhe bevor Scrollbar erscheint */
-                overflow-y: auto; /* Vertikale Scrollbar */
+                white-space: pre-wrap;
+                word-wrap: break-word;
+                max-height: 150px;
+                overflow-y: auto;
             }
+            
+            /* Sortable.js Styles */
+            .sortable-ghost {
+                opacity: 0.4;
+                background-color: #e3f2fd !important;
+            }
+            .sortable-chosen {
+                background-color: #bbdefb !important;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            }
+            .sortable-drag {
+                background-color: #fff !important;
+                box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
+                transform: rotate(2deg);
+            }
+            
+            /* Progress Bar Styles */
+            .progress-wrapper {
+                transition: opacity 0.3s ease;
+            }
+            .progress-wrapper.fade {
+                opacity: 0;
+            }
+            .progress {
+                border-radius: 4px;
+                overflow: hidden;
+            }
+            .progress-bar {
+                transition: width 0.3s ease;
+            }
+            
+            /* Sub-input wrapper animation */
+            .sub-input-wrapper {
+                transition: opacity 0.3s ease, transform 0.3s ease;
+            }
+            .sub-input-wrapper.d-none {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            .sub-input-wrapper.show {
+                opacity: 1;
+                transform: translateY(0);
+            }
+            
+            /* Entry animation */
             @keyframes fadeIn {
                 from {
                     opacity: 0;
@@ -130,6 +190,57 @@
                     opacity: 1;
                     transform: translateY(0);
                 }
+            }
+            
+            @keyframes slideIn {
+                from {
+                    opacity: 0;
+                    transform: translateY(-10px);
+                }
+                to {
+                    opacity: 1;
+                    transform: translateY(0);
+                }
+            }
+            
+            /* Drag handle indicator */
+            .entry-header::before {
+                content: "⋮⋮";
+                color: #adb5bd;
+                margin-right: 8px;
+                font-size: 0.9rem;
+                letter-spacing: -3px;
+            }
+            
+            .sub-entry::before {
+                content: "⋮";
+                color: #adb5bd;
+                margin-right: 8px;
+                font-size: 0.8rem;
+            }
+            
+            /* Toast notification */
+            .custom-toast {
+                animation: slideIn 0.3s ease;
+            }
+            
+            /* Focus styles for inputs */
+            .sub-input:focus {
+                border-color: #0d6efd;
+                box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
+            }
+            
+            /* Responsive button groups */
+            .actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 4px;
+            }
+            
+            /* Placeholder styling */
+            .sub-input::placeholder {
+                color: #6c757d;
+                font-style: italic;
             }
         </style>
     </head>
@@ -141,7 +252,7 @@
                 <!-- Report Bug Button -->
                 <button id="bugBtn" class="btn btn-outline-danger btn-sm d-flex align-items-center">
                     <svg
-                        xmlns="http://www.w3.org"
+                        xmlns="http://www.w3.org/2000/svg"
                         width="14"
                         height="14"
                         fill="currentColor"
@@ -158,7 +269,7 @@
                 <!-- Feature Request Button -->
                 <button id="featureBtn" class="btn btn-outline-info btn-sm d-flex align-items-center">
                     <svg
-                        xmlns="http://www.w3.org"
+                        xmlns="http://www.w3.org/2000/svg"
                         width="14"
                         height="14"
                         fill="currentColor"
@@ -174,8 +285,6 @@
                     </svg>
                     Feature
                 </button>
-
-                <!-- View on Page Button -->
             </div>
         </div>
 
@@ -188,14 +297,12 @@
             </li>
             <li class="nav-item">
                 <a class="nav-link" id="loop-tab" data-bs-toggle="tab" href="#loop" role="tab"
-                    ><!-- Stapel / Batch -->
-                    <i class="bi bi-stack"></i> Batch</a
+                    ><i class="bi bi-stack"></i> Batch</a
                 >
             </li>
             <li class="nav-item">
                 <a class="nav-link" id="history-tab" data-bs-toggle="tab" href="#history" role="tab"
-                    ><!-- Klassisches History Icon -->
-                    <i class="bi bi-clock-history"></i> History</a
+                    ><i class="bi bi-clock-history"></i> History</a
                 >
             </li>
         </ul>
@@ -215,7 +322,7 @@
                 </div>
 
                 <div class="d-flex justify-content-between align-items-center mb-3">
-                    <!-- Gruppe 1: Textwerkzeuge -->
+                    <!-- Text Tools Group -->
                     <div class="d-flex gap-1">
                         <!-- Paste Button -->
                         <button
@@ -225,7 +332,7 @@
                             aria-label="Paste text from clipboard"
                         >
                             <svg
-                                xmlns="http://www.w3.org"
+                                xmlns="http://www.w3.org/2000/svg"
                                 width="14"
                                 height="14"
                                 fill="currentColor"
@@ -254,7 +361,7 @@
                             aria-label="Copy input text"
                         >
                             <svg
-                                xmlns="http://www.w3.org"
+                                xmlns="http://www.w3.org/2000/svg"
                                 width="14"
                                 height="14"
                                 fill="currentColor"
@@ -279,7 +386,7 @@
                             aria-label="Clear input text"
                         >
                             <svg
-                                xmlns="http://www.w3.org"
+                                xmlns="http://www.w3.org/2000/svg"
                                 width="14"
                                 height="14"
                                 fill="currentColor"
@@ -301,7 +408,7 @@
                             aria-label="Fix text formatting"
                         >
                             <svg
-                                xmlns="http://www.w3.org"
+                                xmlns="http://www.w3.org/2000/svg"
                                 width="14"
                                 height="14"
                                 fill="currentColor"
@@ -323,7 +430,7 @@
                             aria-label="Swap text"
                         >
                             <svg
-                                xmlns="http://www.w3.org"
+                                xmlns="http://www.w3.org/2000/svg"
                                 width="14"
                                 height="14"
                                 fill="currentColor"
@@ -339,7 +446,6 @@
                         </button>
                     </div>
 
-                    <!-- Gruppe 2: Senden -->
                     <!-- Send Button -->
                     <button
                         class="btn btn-primary"
@@ -348,7 +454,7 @@
                         aria-label="Send to DeepL"
                     >
                         <svg
-                            xmlns="http://www.w3.org"
+                            xmlns="http://www.w3.org/2000/svg"
                             width="16"
                             height="16"
                             fill="currentColor"
@@ -383,10 +489,23 @@
 
             <!-- Loop Management Page -->
             <div class="tab-pane fade" id="loop" role="tabpanel">
-                <h5>Batch conversions</h5>
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">Batch conversions</h5>
+                    <small class="text-muted">
+                        <i class="bi bi-grip-vertical"></i> Drag to reorder
+                    </small>
+                </div>
                 <div class="input-group mb-3">
-                    <input type="text" class="form-control" id="mainEntryInput" placeholder="New main entry..." />
-                    <button class="btn btn-primary" id="addLoop">Add Entry</button>
+                    <input 
+                        type="text" 
+                        class="form-control" 
+                        id="mainEntryInput" 
+                        placeholder="New main entry..." 
+                        autofocus
+                    />
+                    <button class="btn btn-primary" id="addLoop">
+                        <i class="bi bi-plus-lg me-1"></i>Add Entry
+                    </button>
                 </div>
                 <div id="entriesContainer"></div>
             </div>
