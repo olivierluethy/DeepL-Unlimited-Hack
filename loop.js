@@ -204,11 +204,11 @@ function initSubEntrySortable(entryDiv) {
   const subContainer = entryDiv.querySelector(".sub-container");
   if (!subContainer) return;
 
-  const entryId = entryDiv.id;
+  const currentEntryId = entryDiv.id;
 
   // Destroy existing instance if any
-  if (subEntrySortables.has(entryId)) {
-    subEntrySortables.get(entryId).destroy();
+  if (subEntrySortables.has(currentEntryId)) {
+    subEntrySortables.get(currentEntryId).destroy();
   }
 
   const sortable = new Sortable(subContainer, {
@@ -228,7 +228,7 @@ function initSubEntrySortable(entryDiv) {
     },
   });
 
-  subEntrySortables.set(entryId, sortable);
+  subEntrySortables.set(currentEntryId, sortable);
 }
 
 function updateSubEntryNumbers(entryDiv) {
@@ -248,17 +248,36 @@ function updateSubEntryNumbers(entryDiv) {
 async function saveEntriesToStorage() {
   const entries = [];
   document.querySelectorAll(".loop-entry").forEach((entry) => {
+    // Get entry name - check for textarea (editing mode) or div
+    const entryHeaderTextElement = entry.querySelector(".entry-header .sub-entry-text");
+    const entryHeaderTextarea = entry.querySelector(".entry-header textarea");
+    const entryName = entryHeaderTextElement 
+      ? entryHeaderTextElement.textContent 
+      : (entryHeaderTextarea ? entryHeaderTextarea.value : "");
+
     const entryObj = {
       id: entry.id,
-      name: entry.querySelector(".entry-header .sub-entry-text").textContent,
+      name: entryName,
       date: entry.dataset.date || new Date().toISOString(),
       used: entry.dataset.used === "true",
       subEntries: [],
     };
 
     entry.querySelectorAll(".sub-entry").forEach((sub) => {
+      // FIXED: Check for both .sub-entry-text div AND textarea (when in edit mode)
+      const textElement = sub.querySelector(".sub-entry-text");
+      const textareaElement = sub.querySelector("textarea");
+      
+      let subText = "";
+      if (textElement) {
+        subText = textElement.textContent;
+      } else if (textareaElement) {
+        // If currently being edited, get value from textarea
+        subText = textareaElement.value;
+      }
+
       entryObj.subEntries.push({
-        text: sub.querySelector(".sub-entry-text").textContent,
+        text: subText,
         date: sub.dataset.date || new Date().toISOString(),
       });
     });
@@ -761,21 +780,37 @@ document.getElementById("entriesContainer").addEventListener("click", function (
 });
 
 // -----------------------------
-// Edit / Delete / Save
+// Edit / Delete / Save - FIXED
 // -----------------------------
 function startEditText(btn, type) {
   const parent = type === "entry" ? btn.closest(".loop-entry") : btn.closest(".sub-entry");
-  const textElement = parent.querySelector(".sub-entry-text");
+  
+  // For entry type, look in the header; for sub type, look in the sub-entry
+  let textElement;
+  if (type === "entry") {
+    textElement = parent.querySelector(".entry-header .sub-entry-text");
+  } else {
+    textElement = parent.querySelector(".sub-entry-text");
+  }
+  
+  if (!textElement) {
+    console.warn("Text element not found for editing");
+    return;
+  }
+  
   const currentText = textElement.textContent;
 
   const textarea = document.createElement("textarea");
-  textarea.className = "form-control";
+  textarea.className = "form-control edit-textarea";
   textarea.value = currentText;
   if (type === "sub") textarea.rows = 2;
 
   textElement.replaceWith(textarea);
   textarea.focus();
   textarea.select();
+
+  // Store the original button reference and type for later
+  textarea.dataset.editType = type;
 
   // Smart enter for edit mode
   textarea.addEventListener("keydown", (e) => {
@@ -785,47 +820,116 @@ function startEditText(btn, type) {
       if (saveBtn) saveBtn.click();
     }
     if (e.key === "Escape") {
-      // Cancel edit
+      // Cancel edit - restore original text
       const textDiv = document.createElement("div");
       textDiv.className = "sub-entry-text";
       textDiv.textContent = currentText;
       textarea.replaceWith(textDiv);
-      btn.textContent = "✏️ Edit";
+      
+      // Restore button state
+      if (type === "entry") {
+        btn.innerHTML = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-pencil-square me-1" viewBox="0 0 16 16">
+            <path d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z"/>
+            <path fill-rule="evenodd" d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5z"/>
+          </svg>
+          Edit`;
+      } else {
+        btn.textContent = "✏️ Edit";
+      }
       btn.classList.remove("save-edit");
       btn.classList.add(type === "entry" ? "edit-entry" : "edit-sub");
+      
+      if (type === "sub") {
+        updateTextToggle(parent);
+      }
     }
   });
 
-  btn.textContent = "💾 Save";
+  // Update button to Save state
+  if (type === "entry") {
+    btn.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-check-lg me-1" viewBox="0 0 16 16">
+        <path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425z"/>
+      </svg>
+      Save`;
+  } else {
+    btn.textContent = "💾 Save";
+  }
   btn.classList.remove("edit-entry", "edit-sub");
   btn.classList.add("save-edit");
 }
 
 function saveEditText(btn) {
-  const parent = btn.closest(".loop-entry") || btn.closest(".sub-entry");
-  const textarea = parent.querySelector("textarea");
-  const type = btn.closest(".entry-header") ? "entry" : "sub";
+  // Determine type based on button location
+  const isEntryEdit = btn.closest(".entry-header") !== null;
+  const type = isEntryEdit ? "entry" : "sub";
+  
+  // Get the parent container
+  const parent = type === "entry" 
+    ? btn.closest(".loop-entry") 
+    : btn.closest(".sub-entry");
+  
+  if (!parent) {
+    console.error("Parent element not found");
+    return;
+  }
+  
+  // Find the textarea - use more specific selector
+  let textarea;
+  if (type === "entry") {
+    textarea = parent.querySelector(".entry-header textarea");
+  } else {
+    textarea = parent.querySelector("textarea");
+  }
+  
+  if (!textarea) {
+    console.error("Textarea not found for saving");
+    return;
+  }
+  
+  const newText = textarea.value.trim();
+  
+  // Create the new text element
   const textElement = document.createElement("div");
   textElement.className = "sub-entry-text";
-  const newText = textarea.value.trim();
-
-  if (newText) {
-    textElement.textContent = newText;
-    textarea.replaceWith(textElement);
-    if (type === "sub") updateTextToggle(parent);
+  textElement.textContent = newText || "(empty)";
+  
+  // Replace textarea with text element BEFORE saving to storage
+  textarea.replaceWith(textElement);
+  
+  // Update the button state
+  if (type === "entry") {
+    btn.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-pencil-square me-1" viewBox="0 0 16 16">
+        <path d="M15.502 1.94a.5.5 0 0 1 0 .706L14.459 3.69l-2-2L13.502.646a.5.5 0 0 1 .707 0l1.293 1.293zm-1.75 2.456-2-2L4.939 9.21a.5.5 0 0 0-.121.196l-.805 2.414a.25.25 0 0 0 .316.316l2.414-.805a.5.5 0 0 0 .196-.12l6.813-6.814z"/>
+        <path fill-rule="evenodd" d="M1 13.5A1.5 1.5 0 0 0 2.5 15h11a1.5 1.5 0 0 0 1.5-1.5v-6a.5.5 0 0 0-1 0v6a.5.5 0 0 1-.5.5h-11a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5H9a.5.5 0 0 0 0-1H2.5A1.5 1.5 0 0 0 1 2.5z"/>
+      </svg>
+      Edit`;
   } else {
-    textarea.replaceWith(textElement);
+    btn.textContent = "✏️ Edit";
   }
-
-  btn.textContent = "✏️ Edit";
   btn.classList.remove("save-edit");
   btn.classList.add(type === "entry" ? "edit-entry" : "edit-sub");
-
+  
+  // Update text toggle for sub-entries
+  if (type === "sub") {
+    updateTextToggle(parent);
+  }
+  
+  // NOW save to storage (after DOM is updated)
   saveEntriesToStorage();
+  
+  showToast("Changes saved!");
 }
 
 function deleteEntry(btn, type) {
   const parent = type === "entry" ? btn.closest(".loop-entry") : btn.closest(".sub-entry");
+  
+  if (!parent) {
+    console.error("Parent element not found for deletion");
+    return;
+  }
   
   // Animate removal
   parent.style.transition = "opacity 0.3s ease, transform 0.3s ease";
@@ -833,17 +937,31 @@ function deleteEntry(btn, type) {
   parent.style.transform = "translateX(20px)";
   
   setTimeout(() => {
+    const parentId = parent.id;
     parent.remove();
+    
     if (type === "entry") {
       updateEntryNumbers();
       // Clean up sortable instance
-      const entryId = parent.id;
-      if (subEntrySortables.has(entryId)) {
-        subEntrySortables.get(entryId).destroy();
-        subEntrySortables.delete(entryId);
+      if (subEntrySortables.has(parentId)) {
+        subEntrySortables.get(parentId).destroy();
+        subEntrySortables.delete(parentId);
+      }
+    } else {
+      // Update sub-entry counter
+      const entryDiv = btn.closest(".loop-entry");
+      if (entryDiv) {
+        const subContainer = entryDiv.querySelector(".sub-container");
+        if (subContainer) {
+          const remainingSubEntries = subContainer.querySelectorAll(".sub-entry").length;
+          subContainer.dataset.subEntryCounter = remainingSubEntries;
+          updateSubEntryNumbers(entryDiv);
+        }
       }
     }
+    
     saveEntriesToStorage();
+    showToast(type === "entry" ? "Entry deleted" : "Subentry deleted");
   }, 300);
 }
 
@@ -856,7 +974,10 @@ function updateEntryNumbers() {
   entries.forEach((entry, index) => {
     const number = entryCounter - index;
     entry.dataset.entryNumber = number;
-    entry.querySelector(".entry-number").textContent = `${number}.`;
+    const entryNumberSpan = entry.querySelector(".entry-number");
+    if (entryNumberSpan) {
+      entryNumberSpan.textContent = `${number}.`;
+    }
     updateSubEntryNumbers(entry);
   });
 }
@@ -866,16 +987,21 @@ function updateTextToggle(subDiv) {
   const toggle = subDiv.querySelector(".toggle-text");
   if (!textDiv || !toggle) return;
 
-  if (textDiv.scrollHeight > textDiv.clientHeight) {
-    toggle.style.display = "inline-block";
-    toggle.textContent = "Show more";
-  } else {
-    toggle.style.display = "none";
-  }
+  // Use requestAnimationFrame to ensure DOM is updated
+  requestAnimationFrame(() => {
+    if (textDiv.scrollHeight > textDiv.clientHeight) {
+      toggle.style.display = "inline-block";
+      toggle.textContent = "Show more";
+    } else {
+      toggle.style.display = "none";
+    }
+  });
 }
 
 function toggleText(toggle) {
   const textDiv = toggle.previousElementSibling;
+  if (!textDiv) return;
+  
   if (textDiv.classList.contains("expanded")) {
     textDiv.classList.remove("expanded");
     toggle.textContent = "Show more";
@@ -916,6 +1042,9 @@ document.addEventListener("DOMContentLoaded", () => {
     }
     .progress-wrapper.fade {
       opacity: 0;
+    }
+    .edit-textarea {
+      width: 100%;
     }
   `;
   document.head.appendChild(style);
