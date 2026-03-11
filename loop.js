@@ -100,7 +100,18 @@ function removeProgressBar(entryDiv, delay = 2000) {
   }, delay);
 }
 
+const writeRegex = /^\/[^\/]+\/write/;
+const translateRegex = /^\/[^\/]+\/(translate|translator)/;
+
 async function startGroupTranslation(entryDiv) {
+  // ✅ Verification: only allow certain URLs
+  const path = window.location.pathname;
+  if (!writeRegex.test(path) && !translateRegex.test(path)) {
+    console.warn("⛔ Group translation not allowed on this page.");
+    alert("Group translation can only be started on DeepL's Write or Translate pages.");
+    return; // stop immediately
+  }
+
   stopTranslation = false;
 
   const startBtn = entryDiv.querySelector(".start-group");
