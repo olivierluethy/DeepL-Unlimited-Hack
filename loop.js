@@ -552,6 +552,7 @@ function createSubEntryElement(entryNumber, subNumber, text, date) {
     <span class="actions">
       <button class="btn btn-outline-secondary btn-sm edit-sub">✏️ Edit</button>
       <button class="btn btn-outline-danger btn-sm delete-sub">🗑️ Delete</button>
+      <button class="btn btn-outline-primary btn-sm copy-sub">📋 Copy</button>
     </span>
   `;
   return subDiv;
@@ -776,7 +777,27 @@ document.getElementById("entriesContainer").addEventListener("click", function (
     deleteEntry(target, "sub");
   } else if (target.classList.contains("save-edit")) {
     saveEditText(target);
-  } else if (target.classList.contains("start-group") || target.closest(".start-group")) {
+  } else if (target.classList.contains("copy-sub")) {
+    copySubEntry(target);
+
+    // Aktuelle Klassen und Text speichern
+    const originalText = target.innerHTML;
+    const isOutline = target.classList.contains("btn-outline-primary");
+
+    // Feedback-Zustand: Grün färben und Text ändern
+    target.innerText = "Copied!";
+    target.classList.remove("btn-primary", "btn-outline-primary");
+    target.classList.add("btn-success");
+
+    // Nach 1.5 Sekunden zurücksetzen
+    setTimeout(() => {
+        target.innerHTML = originalText;
+        target.classList.remove("btn-success");
+        target.classList.add(isOutline ? "btn-outline-primary" : "btn-primary");
+    }, 1500);
+}
+
+  else if (target.classList.contains("start-group") || target.closest(".start-group")) {
     const entryDiv = (target.closest(".start-group") || target).closest(".loop-entry");
     startGroupTranslation(entryDiv);
   } else if (target.classList.contains("stop-group") || target.closest(".stop-group")) {
@@ -863,6 +884,18 @@ function startEditText(btn, type) {
   }
   btn.classList.remove("edit-entry", "edit-sub");
   btn.classList.add("save-edit");
+}
+
+function copySubEntry(btn) {
+  // Please copy the text content of the sub-entry to clipboard
+  const textElement = btn.closest(".sub-entry").querySelector(".sub-entry-text");
+  if (!textElement) {
+    console.error("Text element not found in sub-entry for copying");
+    return;
+  }
+  navigator.clipboard.writeText(textElement.textContent).catch((err) => {
+    console.error("Failed to copy text: ", err);
+  });
 }
 
 function saveEditText(btn) {

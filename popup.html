@@ -25,7 +25,9 @@
                 padding: 15px;
                 margin-bottom: 15px;
                 background-color: #f8f9fa;
-                transition: box-shadow 0.2s, transform 0.2s;
+                transition:
+                    box-shadow 0.2s,
+                    transform 0.2s;
             }
             .loop-entry:hover {
                 box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
@@ -54,7 +56,10 @@
                 border-radius: 4px;
                 cursor: grab;
                 user-select: none;
-                transition: transform 0.2s, box-shadow 0.2s, opacity 0.3s;
+                transition:
+                    transform 0.2s,
+                    box-shadow 0.2s,
+                    opacity 0.3s;
             }
             .sub-entry:hover {
                 box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
@@ -136,7 +141,7 @@
                 max-height: 150px;
                 overflow-y: auto;
             }
-            
+
             /* Sortable.js Styles */
             .sortable-ghost {
                 opacity: 0.4;
@@ -151,7 +156,7 @@
                 box-shadow: 0 8px 20px rgba(0, 0, 0, 0.2);
                 transform: rotate(2deg);
             }
-            
+
             /* Progress Bar Styles */
             .progress-wrapper {
                 transition: opacity 0.3s ease;
@@ -166,10 +171,12 @@
             .progress-bar {
                 transition: width 0.3s ease;
             }
-            
+
             /* Sub-input wrapper animation */
             .sub-input-wrapper {
-                transition: opacity 0.3s ease, transform 0.3s ease;
+                transition:
+                    opacity 0.3s ease,
+                    transform 0.3s ease;
             }
             .sub-input-wrapper.d-none {
                 opacity: 0;
@@ -179,7 +186,7 @@
                 opacity: 1;
                 transform: translateY(0);
             }
-            
+
             /* Entry animation */
             @keyframes fadeIn {
                 from {
@@ -191,7 +198,7 @@
                     transform: translateY(0);
                 }
             }
-            
+
             @keyframes slideIn {
                 from {
                     opacity: 0;
@@ -202,7 +209,7 @@
                     transform: translateY(0);
                 }
             }
-            
+
             /* Drag handle indicator */
             .entry-header::before {
                 content: "⋮⋮";
@@ -211,32 +218,32 @@
                 font-size: 0.9rem;
                 letter-spacing: -3px;
             }
-            
+
             .sub-entry::before {
                 content: "⋮";
                 color: #adb5bd;
                 margin-right: 8px;
                 font-size: 0.8rem;
             }
-            
+
             /* Toast notification */
             .custom-toast {
                 animation: slideIn 0.3s ease;
             }
-            
+
             /* Focus styles for inputs */
             .sub-input:focus {
                 border-color: #0d6efd;
                 box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
             }
-            
+
             /* Responsive button groups */
             .actions {
                 display: flex;
                 flex-wrap: wrap;
                 gap: 4px;
             }
-            
+
             /* Placeholder styling */
             .sub-input::placeholder {
                 color: #6c757d;
@@ -310,9 +317,16 @@
         <!-- Tab Content -->
         <div class="tab-content">
             <!-- Main Page -->
+    
             <div class="tab-pane fade show active" id="main" role="tabpanel">
                 <div class="mb-3">
-                    <label for="inputText" class="form-label">Enter text:</label>
+                    <h5 for="inputText" class="form-label">
+    Enter text 
+    <i class="bi bi-info-circle"
+       data-bs-toggle="tooltip"
+data-bs-title="Enter or paste text and click 'Send to DeepL' to start the translation."       style="cursor: help">
+    </i>
+</h5>
                     <textarea
                         class="form-control"
                         id="inputText"
@@ -483,29 +497,41 @@
 
             <!-- History Page -->
             <div class="tab-pane fade" id="history" role="tabpanel">
-                <h5>History of conversions</h5>
+                <h5>History of conversions <i
+                            class="bi bi-info-circle"
+                            style="cursor: help"
+                            data-bs-toggle="tooltip"
+                            data-bs-placement="top"
+data-bs-title="View, copy, or delete previous translations."                        >
+                        </i></h5>
                 <div id="historyList"></div>
             </div>
 
             <!-- Loop Management Page -->
             <div class="tab-pane fade" id="loop" role="tabpanel">
                 <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5 class="mb-0">Batch conversions</h5>
-                    <small class="text-muted">
-                        <i class="bi bi-grip-vertical"></i> Drag to reorder
-                    </small>
+                    <h5 class="mb-0">
+                        Batch conversions
+                        <i
+                            class="bi bi-info-circle"
+                            style="cursor: help"
+                            data-bs-toggle="tooltip"
+                            data-bs-placement="top"
+                            data-bs-title="Create groups and add multiple texts to each. Click Start to translate all texts in the group one after another via DeepL."
+                        >
+                        </i>
+                    </h5>
+                    <small class="text-muted"> <i class="bi bi-grip-vertical"></i> Drag to reorder </small>
                 </div>
                 <div class="input-group mb-3">
-                    <input 
-                        type="text" 
-                        class="form-control" 
-                        id="mainEntryInput" 
-                        placeholder="New main entry..." 
+                    <input
+                        type="text"
+                        class="form-control"
+                        id="mainEntryInput"
+                        placeholder="New main entry..."
                         autofocus
                     />
-                    <button class="btn btn-primary" id="addLoop">
-                        <i class="bi bi-plus-lg me-1"></i>Add Entry
-                    </button>
+                    <button class="btn btn-primary" id="addLoop"><i class="bi bi-plus-lg me-1"></i>Add Entry</button>
                 </div>
                 <div id="entriesContainer"></div>
             </div>

@@ -114,48 +114,50 @@ async function insertAndTranslate(text) {
   const sourceInput = document.querySelector("[data-testid='translator-source-input'] [role='textbox']");
   const targetInput = document.querySelector("[data-testid='translator-target-input'] [role='textbox']");
   
-  if (targetInput) targetInput.textContent = ""; 
-  
+  // 1. Merke dir den alten Text, um Dubletten zu vermeiden
+  const oldText = targetInput ? targetInput.innerText.trim() : "";
+
   if (sourceInput) {
-    sourceInput.focus(); // Fokus setzen verbessert die Erkennung
-    sourceInput.textContent = "";
-    sourceInput.textContent = text;
-    sourceInput.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    sourceInput.focus();
+    // Text löschen und neu setzen
+    sourceInput.innerText = ""; 
+    // Simulation einer echten Eingabe
+    document.execCommand('insertText', false, text);
+    sourceInput.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
-  await waitForTranslation();
+  // 2. Warte aktiv auf Veränderung gegenüber 'oldText'
+  return await waitForTranslation(oldText, text);
 }
 
-function waitForTranslation() {
+function waitForTranslation(oldText, originalInput) {
   return new Promise((resolve) => {
     const targetInput = document.querySelector("[data-testid='translator-target-input'] [role='textbox']");
-    
-    if (!targetInput) {
-      // Falls das Element noch nicht da ist, kurz warten und erneut versuchen
-      setTimeout(() => resolve(waitForTranslation()), 500);
-      return;
-    }
+    let attempts = 0;
+    const maxAttempts = 40; // max 20 Sekunden (40 * 500ms)
 
-    const observer = new MutationObserver(() => {
-      const currentText = targetInput.textContent.trim();
-      if (currentText.length > 0) {
-        setTimeout(() => {
-          observer.disconnect();
-          resolve();
-        }, 1000); // 1 Sekunde Puffer für "Text-Streaming"
+    const checkInterval = setInterval(() => {
+      const currentText = targetInput ? targetInput.innerText.trim() : "";
+      attempts++;
+
+      // Bedingungen für Erfolg:
+      // - Text ist nicht leer
+      // - Text ist anders als der vorherige Chunk (außer Input war gleich)
+      // - ODER: Input und Output sind identisch (DeepL kopiert manchmal nur, wenn Sprache gleich)
+      const hasChanged = (currentText !== oldText);
+      const isNotEmpty = currentText.length > 0;
+
+      if (isNotEmpty && (hasChanged || originalInput === currentText)) {
+        clearInterval(checkInterval);
+        // Kleiner Puffer, damit der Satz zu Ende "fliessen" kann
+        setTimeout(() => resolve(currentText), 800);
       }
-    });
 
-    observer.observe(targetInput, {
-      childList: true,
-      characterData: true,
-      subtree: true
-    });
-
-    setTimeout(() => {
-      observer.disconnect();
-      resolve();
-    }, 30000);
+      if (attempts >= maxAttempts) {
+        clearInterval(checkInterval);
+        resolve(currentText); // Timeout-Fallback
+      }
+    }, 500);
   });
 }
 

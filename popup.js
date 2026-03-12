@@ -9,6 +9,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const magicFixBtn = document.getElementById("magicFixBtn");
   const swapBtn = document.getElementById("swapBtn");
 
+  const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
+  tooltipTriggerList.forEach(el => new bootstrap.Tooltip(el));
+
   // Initialisiere Bootstrap Tabs
   const tabList = document.querySelectorAll('#appTabs a[data-bs-toggle="tab"]');
   tabList.forEach((tab) => {
