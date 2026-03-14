@@ -1,9 +1,70 @@
 // ============================================
-// DeepL Pro Unlimited - Loop/Batch Management
+// DeepL Pro Unlimited - Loop/Batch Management (FIXED)
 // Features: Drag-Drop, Progress Bar, Multi-Paste,
 // Smart Enter, Auto-Focus, Bootstrap Animations
+// TWO-WAY COMMUNICATION: Waits for completion signals
 // ============================================
 
+// ✅ Track pending translations with unique IDs
+const pendingTranslations = new Map();
+
+// ✅ Listen for completion messages from content script
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === "DEEPL_TRANSLATION_COMPLETE") {
+    console.log("📨 Received completion signal:", message.requestId);
+    
+    const resolver = pendingTranslations.get(message.requestId);
+    if (resolver) {
+      resolver(message);
+      pendingTranslations.delete(message.requestId);
+    }
+  }
+});
+
+// ✅ NEW: Send text and wait for completion signal
+async function sendTextToDeepLAndWait(text, timeoutMs = 60000) {
+  if (!text.trim()) return { success: true };
+
+  const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+  
+  const [tab] = await chrome.tabs.query({
+    active: true,
+    currentWindow: true,
+  });
+
+  // Create a promise that will be resolved when we get the completion signal
+  const completionPromise = new Promise((resolve, reject) => {
+    pendingTranslations.set(requestId, resolve);
+    
+    // Timeout fallback
+    setTimeout(() => {
+      if (pendingTranslations.has(requestId)) {
+        pendingTranslations.delete(requestId);
+        reject(new Error(`Translation timeout for request ${requestId}`));
+      }
+    }, timeoutMs);
+  });
+
+  // Send the translation request with the unique ID
+  await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    function: (payload, reqId) => {
+      window.postMessage({ 
+        type: "DEEPL_TRANSLATE", 
+        payload: payload,
+        requestId: reqId 
+      }, "*");
+    },
+    args: [text, requestId],
+  });
+
+  console.log(`📤 Sent translation request: ${requestId} (${text.length} chars)`);
+
+  // Wait for the completion signal
+  return await completionPromise;
+}
+
+// Legacy function for backwards compatibility
 async function sendTextToDeepL(text) {
   if (!text.trim()) return;
 
@@ -33,6 +94,24 @@ async function sendWithRetry(text, retries = 3) {
   }
   console.error("Translation failed");
   return false;
+}
+
+// ✅ NEW: Send with retry AND wait for completion
+async function sendWithRetryAndWait(text, retries = 3, timeoutMs = 60000) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const result = await sendTextToDeepLAndWait(text, timeoutMs);
+      console.log(`✅ Translation completed:`, result);
+      return result;
+    } catch (err) {
+      console.warn(`⚠️ Attempt ${i + 1} failed:`, err.message);
+      if (i < retries - 1) {
+        await wait(2000); // Longer wait between retries
+      }
+    }
+  }
+  console.error("❌ Translation failed after all retries");
+  return { success: false, error: "Max retries exceeded" };
 }
 
 // -----------------------------
@@ -67,7 +146,7 @@ function createProgressBar(entryDiv) {
   return progressWrapper;
 }
 
-function updateProgressBar(entryDiv, current, total) {
+function updateProgressBar(entryDiv, current, total, status = "Processing") {
   const progressWrapper = entryDiv.querySelector(".progress-wrapper");
   if (!progressWrapper) return;
 
@@ -79,7 +158,7 @@ function updateProgressBar(entryDiv, current, total) {
   progressBar.style.width = `${percent}%`;
   progressBar.setAttribute("aria-valuenow", percent);
   progressPercent.textContent = `${percent}%`;
-  progressLabel.textContent = `Processing ${current}/${total}...`;
+  progressLabel.textContent = `${status} ${current}/${total}...`;
 
   // Change color based on progress
   if (percent === 100) {
@@ -101,6 +180,7 @@ function removeProgressBar(entryDiv, delay = 2000) {
 }
 
 
+// ✅ FIXED: startGroupTranslation now waits for each translation to complete
 async function startGroupTranslation(entryDiv) {
   stopTranslation = false;
 
@@ -125,29 +205,50 @@ async function startGroupTranslation(entryDiv) {
   // Create and show progress bar
   createProgressBar(entryDiv);
 
+  let successCount = 0;
+  let failCount = 0;
+
   for (let i = 0; i < subEntries.length; i++) {
     if (stopTranslation) {
-      console.log("⏹ Translation stopped");
+      console.log("⏹ Translation stopped by user");
+      updateProgressBar(entryDiv, i, subEntries.length, "Stopped at");
       break;
     }
 
     const text = subEntries[i].textContent.trim();
     if (!text) {
-      updateProgressBar(entryDiv, i + 1, subEntries.length);
+      updateProgressBar(entryDiv, i + 1, subEntries.length, "Skipping empty");
       continue;
     }
 
-    console.log(`🌍 Translating entry ${i + 1}/${subEntries.length}`);
+    console.log(`🌍 Translating entry ${i + 1}/${subEntries.length} (${text.length} chars)`);
 
-    // Update progress bar
-    updateProgressBar(entryDiv, i + 1, subEntries.length);
+    // Update progress bar - show "Waiting for..."
+    updateProgressBar(entryDiv, i + 1, subEntries.length, "Translating");
 
-    // Send text and wait for DeepL UI
-    await sendWithRetry(text);
-    await wait(1500);
+    try {
+      // ✅ KEY FIX: Wait for actual completion signal before moving to next
+      const result = await sendWithRetryAndWait(text, 3, 90000); // 90 second timeout for large texts
+      
+      if (result.success) {
+        successCount++;
+        console.log(`✅ Entry ${i + 1} completed successfully`);
+      } else {
+        failCount++;
+        console.warn(`⚠️ Entry ${i + 1} failed:`, result.error);
+      }
+    } catch (err) {
+      failCount++;
+      console.error(`❌ Entry ${i + 1} error:`, err);
+    }
+
+    // Small delay between entries for UI stability
+    if (i < subEntries.length - 1 && !stopTranslation) {
+      await wait(1000);
+    }
   }
 
-  console.log("✅ Group translation finished");
+  console.log(`✅ Group translation finished: ${successCount} success, ${failCount} failed`);
   
   // Final progress update
   if (!stopTranslation) {
@@ -158,6 +259,13 @@ async function startGroupTranslation(entryDiv) {
   
   startBtn.classList.remove("d-none");
   stopBtn.classList.add("d-none");
+
+  // Show summary toast
+  if (failCount > 0) {
+    showToast(`Completed: ${successCount} success, ${failCount} failed`);
+  } else {
+    showToast(`All ${successCount} translations completed!`);
+  }
 }
 
 function wait(ms) {
