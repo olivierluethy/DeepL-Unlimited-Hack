@@ -179,92 +179,122 @@ function removeProgressBar(entryDiv, delay = 2000) {
   }, delay);
 }
 
+async function checkInsideDeepL(){
+  return new Promise((resolve) => {
+    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+      chrome.tabs.sendMessage(tabs[0].id, { action: "insideDeepL" }, (response) => {
+        resolve(response && response.inside);
+      });
+    });
+  });
+}
 
-// ✅ FIXED: startGroupTranslation now waits for each translation to complete
 async function startGroupTranslation(entryDiv) {
-  stopTranslation = false;
-
   const startBtn = entryDiv.querySelector(".start-group");
   const stopBtn = entryDiv.querySelector(".stop-group");
 
-  startBtn.classList.add("d-none");
-  stopBtn.classList.remove("d-none");
+  try {
+    // Check DeepL before starting
+    const inside = await checkInsideDeepL();
+    if (!inside) {
+      alert("Please open DeepL first.");
+      return;
+    }
 
-  const subEntries = entryDiv.querySelectorAll(".sub-entry .sub-entry-text");
+    stopTranslation = false;
 
-  if (!subEntries.length) {
-    alert("This group has no entries to translate.");
+    startBtn.classList.add("d-none");
+    stopBtn.classList.remove("d-none");
+
+    const subEntries = entryDiv.querySelectorAll(".sub-entry .sub-entry-text");
+
+    if (!subEntries.length) {
+      alert("This group has no entries to translate.");
+      return;
+    }
+
+    entryDiv.dataset.used = "true";
+    await saveEntriesToStorage();
+
+    createProgressBar(entryDiv);
+
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < subEntries.length; i++) {
+
+      // User manually stopped
+      if (stopTranslation) {
+        console.log("⏹ Translation stopped by user");
+        updateProgressBar(entryDiv, i, subEntries.length, "Stopped at");
+        break;
+      }
+
+      // Check DeepL again during loop
+      const stillInside = await checkInsideDeepL();
+      if (!stillInside) {
+        console.warn("❌ DeepL not detected anymore. Stopping process.");
+        showToast("Translation stopped: DeepL tab not active.");
+        stopTranslation = true;
+        updateProgressBar(entryDiv, i, subEntries.length, "DeepL closed");
+        break;
+      }
+
+      const text = subEntries[i].textContent.trim();
+
+      if (!text) {
+        updateProgressBar(entryDiv, i + 1, subEntries.length, "Skipping empty");
+        continue;
+      }
+
+      console.log(
+        `🌍 Translating entry ${i + 1}/${subEntries.length} (${text.length} chars)`
+      );
+
+      updateProgressBar(entryDiv, i + 1, subEntries.length, "Translating");
+
+      try {
+        const result = await sendWithRetryAndWait(text, 3, 90000);
+
+        if (result.success) {
+          successCount++;
+          console.log(`✅ Entry ${i + 1} completed successfully`);
+        } else {
+          failCount++;
+          console.warn(`⚠️ Entry ${i + 1} failed:`, result.error);
+        }
+
+      } catch (err) {
+        failCount++;
+        console.error(`❌ Entry ${i + 1} error:`, err);
+      }
+
+      if (i < subEntries.length - 1 && !stopTranslation) {
+        await wait(1000);
+      }
+    }
+
+    console.log(
+      `✅ Group translation finished: ${successCount} success, ${failCount} failed`
+    );
+
+    if (!stopTranslation) {
+      updateProgressBar(entryDiv, subEntries.length, subEntries.length);
+    }
+
+    if (failCount > 0) {
+      showToast(`Completed: ${successCount} success, ${failCount} failed`);
+    } else if (!stopTranslation) {
+      showToast(`All ${successCount} translations completed!`);
+    }
+
+  } finally {
+
+    // Always clean up UI
+    removeProgressBar(entryDiv);
+
     startBtn.classList.remove("d-none");
     stopBtn.classList.add("d-none");
-    return;
-  }
-
-  entryDiv.dataset.used = "true";
-  await saveEntriesToStorage();
-
-  // Create and show progress bar
-  createProgressBar(entryDiv);
-
-  let successCount = 0;
-  let failCount = 0;
-
-  for (let i = 0; i < subEntries.length; i++) {
-    if (stopTranslation) {
-      console.log("⏹ Translation stopped by user");
-      updateProgressBar(entryDiv, i, subEntries.length, "Stopped at");
-      break;
-    }
-
-    const text = subEntries[i].textContent.trim();
-    if (!text) {
-      updateProgressBar(entryDiv, i + 1, subEntries.length, "Skipping empty");
-      continue;
-    }
-
-    console.log(`🌍 Translating entry ${i + 1}/${subEntries.length} (${text.length} chars)`);
-
-    // Update progress bar - show "Waiting for..."
-    updateProgressBar(entryDiv, i + 1, subEntries.length, "Translating");
-
-    try {
-      // ✅ KEY FIX: Wait for actual completion signal before moving to next
-      const result = await sendWithRetryAndWait(text, 3, 90000); // 90 second timeout for large texts
-      
-      if (result.success) {
-        successCount++;
-        console.log(`✅ Entry ${i + 1} completed successfully`);
-      } else {
-        failCount++;
-        console.warn(`⚠️ Entry ${i + 1} failed:`, result.error);
-      }
-    } catch (err) {
-      failCount++;
-      console.error(`❌ Entry ${i + 1} error:`, err);
-    }
-
-    // Small delay between entries for UI stability
-    if (i < subEntries.length - 1 && !stopTranslation) {
-      await wait(1000);
-    }
-  }
-
-  console.log(`✅ Group translation finished: ${successCount} success, ${failCount} failed`);
-  
-  // Final progress update
-  if (!stopTranslation) {
-    updateProgressBar(entryDiv, subEntries.length, subEntries.length);
-  }
-  
-  removeProgressBar(entryDiv);
-  
-  startBtn.classList.remove("d-none");
-  stopBtn.classList.add("d-none");
-
-  // Show summary toast
-  if (failCount > 0) {
-    showToast(`Completed: ${successCount} success, ${failCount} failed`);
-  } else {
-    showToast(`All ${successCount} translations completed!`);
   }
 }
 

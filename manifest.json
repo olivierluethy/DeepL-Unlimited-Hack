@@ -22,7 +22,8 @@
   "content_scripts": [
     {
       "matches": ["*://www.deepl.com/*"],
-      "js": ["content.js"]
+      "js": ["content.js"],
+      "run_at": "document_idle"
     }
   ],
   "host_permissions": ["*://www.deepl.com/*"],

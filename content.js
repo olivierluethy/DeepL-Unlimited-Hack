@@ -283,3 +283,19 @@ function downloadResult(content) {
   txtLink.download = `DeepL_Übersetzung_${timestamp}.txt`;
   txtLink.click();
 }
+// Add a listener for messages from the popup
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  if (request.action === "insideDeepL") {
+    // Check if the element with class "overlayer active" exists
+    // To ensure the user can't start if the countdown for the game still exists
+    const path = window.location.pathname;
+
+    const writeRegex = /^\/[^\/]+\/write/;
+    const translateRegex = /^\/[^\/]+\/(translate|translator)/;
+
+    const inside = writeRegex.test(path) || translateRegex.test(path);
+
+    sendResponse({ inside });
+    return true;
+  }
+});
