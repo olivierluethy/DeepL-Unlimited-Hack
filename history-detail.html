@@ -1,82 +1,311 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Verlauf-Details - DeepL Pro Unlimited</title>
-    <link
-      href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css"
-      rel="stylesheet"
-    />
+    <title>History Details - DeepL Pro Unlimited</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css" />
 
     <script src="js/diff.min.js" defer></script>
+    <script src="js/bootstrap.bundle.min.js" defer></script>
     <script src="history-detail.js" defer></script>
 
     <style>
-      .diff-container {
-        font-family: "Courier New", Courier, monospace;
-        font-size: 0.9rem;
-        white-space: pre-wrap;
-        word-wrap: break-word;
-      }
+      /* Minimal custom styles - only what Bootstrap can't handle */
       .diff-added {
-        background-color: #e6ffed;
+        background-color: #d1e7dd;
+        border-radius: 2px;
+        padding: 0 2px;
       }
       .diff-removed {
-        background-color: #ffe6e6;
+        background-color: #f8d7da;
         text-decoration: line-through;
-      }
-      .line-number {
-        color: #6b7280;
-        margin-right: 1rem;
-        display: inline-block;
-        width: 2rem;
-        text-align: right;
+        border-radius: 2px;
+        padding: 0 2px;
       }
     </style>
   </head>
-  <body class="bg-gray-100 min-h-screen flex justify-center items-start py-8">
-    <div class="w-full max-w-6xl mx-auto bg-white rounded-lg shadow-lg p-6">
-      <h2 class="text-2xl font-bold text-indigo-600 mb-6">History details</h2>
-      <button
-        id="backBtn"
-        class="mb-6 bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition"
-      >
-        Back
-      </button>
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="space-y-4">
-          <div class="border border-gray-200 rounded-md p-4 bg-white">
-            <h5 class="text-lg font-semibold text-gray-800 mb-2">
-              Original text
-            </h5>
-            <!-- Original Text Box -->
-<pre
-  id="originalText"
-  class="text-sm text-gray-700 overflow-auto max-h-[70vh] diff-container"
-></pre>
+  <body class="bg-light">
+    
+    <!-- Header -->
+    <nav class="navbar bg-white border-bottom shadow-sm sticky-top">
+      <div class="container">
+        <span class="navbar-brand mb-0 h1 text-primary fw-bold">
+          <img src="icon/icon48.png" alt=""> DeepL Pro Unlimited
+        </span>
+        <button id="backBtn" class="btn btn-outline-secondary d-flex align-items-center">
+          <i class="bi bi-arrow-left me-2"></i>
+          Back to History
+        </button>
+      </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container py-4">
+      
+      <!-- Entry Header Card -->
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+          <div class="row align-items-center">
+            <div class="col-md-6">
+              <h4 class="card-title mb-1">
+                <i class="bi bi-file-text text-primary me-2"></i>
+                Conversion Details
+              </h4>
+              <p id="timestamp" class="text-muted mb-0 small">
+                <i class="bi bi-clock me-1"></i>
+                Loading...
+              </p>
+            </div>
+            <div class="col-md-6">
+              <div class="row g-2 text-center">
+                <div class="col-4">
+                  <div class="bg-light rounded p-2">
+                    <div id="originalChars" class="fs-5 fw-bold text-secondary">-</div>
+                    <small class="text-muted">Original chars</small>
+                  </div>
+                </div>
+                <div class="col-4">
+                  <div class="bg-light rounded p-2">
+                    <div id="convertedChars" class="fs-5 fw-bold text-primary">-</div>
+                    <small class="text-muted">Converted chars</small>
+                  </div>
+                </div>
+                <div class="col-4">
+                  <div class="bg-light rounded p-2">
+                    <div id="changeCount" class="fs-5 fw-bold text-warning">-</div>
+                    <small class="text-muted">Changes</small>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-          <div class="border border-gray-200 rounded-md p-4 bg-white">
-            <h5 class="text-lg font-semibold text-gray-800 mb-2">
-              Converted text
-            </h5>
-            <!-- Converted Text Box -->
-<pre
-  id="translatedText"
-  class="text-sm text-gray-700 overflow-auto max-h-[70vh] diff-container"
-></pre>
-          </div>
-          <p id="timestamp" class="text-sm text-gray-500"></p>
-        </div>
-        <div class="border border-gray-200 rounded-md p-4 bg-gray-50">
-          <h5 class="text-lg font-semibold text-gray-800 mb-2">Differences</h5>
-          <div
-            id="diffOutput"
-            class="diff-container overflow-auto max-h-[70vh]"
-          ></div>
-          <p id="changeCounter" class="text-sm text-gray-500 mt-2"></p>
         </div>
       </div>
+
+      <!-- View Mode Tabs -->
+      <ul class="nav nav-tabs mb-3" id="viewTabs" role="tablist">
+        <li class="nav-item" role="presentation">
+          <button class="nav-link active" id="diff-tab" data-bs-toggle="tab" data-bs-target="#diff-view" type="button" role="tab">
+            <i class="bi bi-file-diff me-1"></i>
+            Differences
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="sidebyside-tab" data-bs-toggle="tab" data-bs-target="#sidebyside-view" type="button" role="tab">
+            <i class="bi bi-layout-split me-1"></i>
+            Side by Side
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="original-tab" data-bs-toggle="tab" data-bs-target="#original-view" type="button" role="tab">
+            <i class="bi bi-file-earmark-text me-1"></i>
+            Original Only
+          </button>
+        </li>
+        <li class="nav-item" role="presentation">
+          <button class="nav-link" id="converted-tab" data-bs-toggle="tab" data-bs-target="#converted-view" type="button" role="tab">
+            <i class="bi bi-file-earmark-check me-1"></i>
+            Converted Only
+          </button>
+        </li>
+      </ul>
+
+      <!-- Tab Content -->
+      <div class="tab-content">
+        
+        <!-- Differences View (Default) -->
+        <div class="tab-pane fade show active" id="diff-view" role="tabpanel">
+          <div class="card border-0 shadow-sm">
+            <div class="card-header bg-white d-flex justify-content-between align-items-center">
+              <div>
+                <h5 class="mb-0">
+                  <i class="bi bi-file-diff text-warning me-2"></i>
+                  Change Highlights
+                </h5>
+                <small class="text-muted">Additions and removals are highlighted</small>
+              </div>
+              <div class="d-flex gap-3">
+                <span class="badge bg-success bg-opacity-25 text-success px-3 py-2">
+                  <i class="bi bi-plus-circle me-1"></i>
+                  Added
+                </span>
+                <span class="badge bg-danger bg-opacity-25 text-danger px-3 py-2">
+                  <i class="bi bi-dash-circle me-1"></i>
+                  Removed
+                </span>
+              </div>
+            </div>
+            <div class="card-body">
+              <div id="diffOutput" class="font-monospace small p-3 bg-light rounded border" style="white-space: pre-wrap; word-wrap: break-word; max-height: 60vh; overflow-y: auto; line-height: 1.8;"></div>
+            </div>
+            <div class="card-footer bg-white">
+              <div class="row text-center">
+                <div class="col-4">
+                  <span id="addedCount" class="text-success fw-bold">0</span>
+                  <small class="text-muted d-block">Additions</small>
+                </div>
+                <div class="col-4">
+                  <span id="removedCount" class="text-danger fw-bold">0</span>
+                  <small class="text-muted d-block">Removals</small>
+                </div>
+                <div class="col-4">
+                  <span id="unchangedCount" class="text-secondary fw-bold">0</span>
+                  <small class="text-muted d-block">Unchanged</small>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Side by Side View -->
+        <div class="tab-pane fade" id="sidebyside-view" role="tabpanel">
+          <div class="row g-3">
+            <!-- Original Column -->
+            <div class="col-lg-6">
+              <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-secondary bg-opacity-10 d-flex justify-content-between align-items-center">
+                  <h5 class="mb-0 text-secondary">
+                    <i class="bi bi-file-earmark-text me-2"></i>
+                    Original Text
+                  </h5>
+                  <button class="btn btn-sm btn-outline-secondary copy-btn" data-target="originalText">
+                    <i class="bi bi-clipboard me-1"></i>
+                    Copy
+                  </button>
+                </div>
+                <div class="card-body">
+                  <pre id="originalText" class="mb-0 font-monospace small p-3 bg-light rounded border" style="white-space: pre-wrap; word-wrap: break-word; max-height: 60vh; overflow-y: auto;"></pre>
+                </div>
+                <div class="card-footer bg-white text-muted small">
+                  <i class="bi bi-text-paragraph me-1"></i>
+                  <span id="originalWordCount">0</span> words
+                  <span class="mx-2">•</span>
+                  <i class="bi bi-cursor-text me-1"></i>
+                  <span id="originalCharCount">0</span> characters
+                </div>
+              </div>
+            </div>
+            
+            <!-- Converted Column -->
+            <div class="col-lg-6">
+              <div class="card border-0 shadow-sm h-100">
+                <div class="card-header bg-primary bg-opacity-10 d-flex justify-content-between align-items-center">
+                  <h5 class="mb-0 text-primary">
+                    <i class="bi bi-file-earmark-check me-2"></i>
+                    Converted Text
+                  </h5>
+                  <button class="btn btn-sm btn-outline-primary copy-btn" data-target="translatedText">
+                    <i class="bi bi-clipboard me-1"></i>
+                    Copy
+                  </button>
+                </div>
+                <div class="card-body">
+                  <pre id="translatedText" class="mb-0 font-monospace small p-3 bg-light rounded border" style="white-space: pre-wrap; word-wrap: break-word; max-height: 60vh; overflow-y: auto;"></pre>
+                </div>
+                <div class="card-footer bg-white text-muted small">
+                  <i class="bi bi-text-paragraph me-1"></i>
+                  <span id="convertedWordCount">0</span> words
+                  <span class="mx-2">•</span>
+                  <i class="bi bi-cursor-text me-1"></i>
+                  <span id="convertedCharCount">0</span> characters
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Original Only View -->
+        <div class="tab-pane fade" id="original-view" role="tabpanel">
+          <div class="card border-0 shadow-sm">
+            <div class="card-header bg-secondary bg-opacity-10 d-flex justify-content-between align-items-center">
+              <h5 class="mb-0 text-secondary">
+                <i class="bi bi-file-earmark-text me-2"></i>
+                Original Text
+              </h5>
+              <button class="btn btn-sm btn-outline-secondary copy-btn" data-target="originalTextFull">
+                <i class="bi bi-clipboard me-1"></i>
+                Copy to Clipboard
+              </button>
+            </div>
+            <div class="card-body">
+              <pre id="originalTextFull" class="mb-0 font-monospace p-3 bg-light rounded border" style="white-space: pre-wrap; word-wrap: break-word; max-height: 70vh; overflow-y: auto;"></pre>
+            </div>
+          </div>
+        </div>
+
+        <!-- Converted Only View -->
+        <div class="tab-pane fade" id="converted-view" role="tabpanel">
+          <div class="card border-0 shadow-sm">
+            <div class="card-header bg-primary bg-opacity-10 d-flex justify-content-between align-items-center">
+              <h5 class="mb-0 text-primary">
+                <i class="bi bi-file-earmark-check me-2"></i>
+                Converted Text
+              </h5>
+              <button class="btn btn-sm btn-outline-primary copy-btn" data-target="translatedTextFull">
+                <i class="bi bi-clipboard me-1"></i>
+                Copy to Clipboard
+              </button>
+            </div>
+            <div class="card-body">
+              <pre id="translatedTextFull" class="mb-0 font-monospace p-3 bg-light rounded border" style="white-space: pre-wrap; word-wrap: break-word; max-height: 70vh; overflow-y: auto;"></pre>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="card border-0 shadow-sm mt-4">
+        <div class="card-body">
+          <div class="d-flex flex-wrap gap-2 justify-content-between align-items-center">
+            <div class="d-flex flex-wrap gap-2">
+              <button id="reuseOriginalBtn" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>
+                Reuse Original
+              </button>
+              <button id="reuseConvertedBtn" class="btn btn-outline-primary">
+                <i class="bi bi-arrow-counterclockwise me-1"></i>
+                Reuse Converted
+              </button>
+            </div>
+            <div class="d-flex flex-wrap gap-2">
+              <div class="dropdown">
+                <button class="btn btn-outline-success dropdown-toggle" type="button" data-bs-toggle="dropdown">
+                  <i class="bi bi-download me-1"></i>
+                  Download
+                </button>
+                <ul class="dropdown-menu">
+                  <li><a class="dropdown-item" href="#" data-format="txt"><i class="bi bi-file-text me-2"></i>Text (.txt)</a></li>
+                  <li><a class="dropdown-item" href="#" data-format="word"><i class="bi bi-file-word me-2"></i>Word (.docx)</a></li>
+                  <li><a class="dropdown-item" href="#" data-format="pdf"><i class="bi bi-file-pdf me-2"></i>PDF</a></li>
+                  <li><a class="dropdown-item" href="#" data-format="md"><i class="bi bi-markdown me-2"></i>Markdown (.md)</a></li>
+                  <li><hr class="dropdown-divider"></li>
+                  <li><a class="dropdown-item" href="#" data-format="json"><i class="bi bi-filetype-json me-2"></i>JSON</a></li>
+                  <li><a class="dropdown-item" href="#" data-format="csv"><i class="bi bi-filetype-csv me-2"></i>CSV</a></li>
+                </ul>
+              </div>
+              <button id="deleteBtn" class="btn btn-outline-danger">
+                <i class="bi bi-trash me-1"></i>
+                Delete Entry
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
     </div>
+
+    <!-- Footer -->
+    <footer class="py-3 mt-4 border-top bg-white">
+      <div class="container text-center text-muted small">
+        <img src="icon/icon48.png" alt=""> DeepL Pro Unlimited — History Details
+      </div>
+    </footer>
+
   </body>
 </html>

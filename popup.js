@@ -9,6 +9,22 @@ document.addEventListener("DOMContentLoaded", () => {
   const magicFixBtn = document.getElementById("magicFixBtn");
   const swapBtn = document.getElementById("swapBtn");
 
+  // ✅ Track pending translations for completion signals
+  const pendingTranslations = new Map();
+
+  // ✅ Listen for completion messages from content script
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === "DEEPL_TRANSLATION_COMPLETE") {
+      console.log("📨 Received completion signal:", message.requestId);
+      
+      const resolver = pendingTranslations.get(message.requestId);
+      if (resolver) {
+        resolver(message);
+        pendingTranslations.delete(message.requestId);
+      }
+    }
+  });
+
   const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
   tooltipTriggerList.forEach(el => new bootstrap.Tooltip(el));
 
@@ -33,7 +49,130 @@ document.addEventListener("DOMContentLoaded", () => {
     chrome.storage.local.set({ lastInput: inputText.value });
   });
 
-  // --- Send to DeepL Button ---
+  // -----------------------------
+  // Progress Bar for Main Tab
+  // -----------------------------
+  function createMainProgressBar() {
+    // Remove existing progress bar if any
+    const existing = document.getElementById("mainProgressWrapper");
+    if (existing) existing.remove();
+
+    const progressWrapper = document.createElement("div");
+    progressWrapper.id = "mainProgressWrapper";
+    progressWrapper.className = "mt-3 mb-2";
+    progressWrapper.innerHTML = `
+      <div class="d-flex justify-content-between align-items-center mb-1">
+        <small class="text-muted progress-label">
+          <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+          Processing...
+        </small>
+        <small class="text-muted progress-percent">0%</small>
+      </div>
+      <div class="progress" style="height: 8px;">
+        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" 
+             role="progressbar" 
+             style="width: 0%;" 
+             aria-valuenow="0" 
+             aria-valuemin="0" 
+             aria-valuemax="100">
+        </div>
+      </div>
+      <small class="text-muted d-block mt-1 progress-details"></small>
+    `;
+    
+    // Insert after the status element
+    status.after(progressWrapper);
+    
+    return progressWrapper;
+  }
+
+  function updateMainProgressBar(percent, label, details = "") {
+    const progressWrapper = document.getElementById("mainProgressWrapper");
+    if (!progressWrapper) return;
+
+    const progressBar = progressWrapper.querySelector(".progress-bar");
+    const progressPercent = progressWrapper.querySelector(".progress-percent");
+    const progressLabel = progressWrapper.querySelector(".progress-label");
+    const progressDetails = progressWrapper.querySelector(".progress-details");
+
+    progressBar.style.width = `${percent}%`;
+    progressBar.setAttribute("aria-valuenow", percent);
+    progressPercent.textContent = `${percent}%`;
+    
+    if (percent === 100) {
+      progressBar.classList.remove("bg-primary", "progress-bar-animated");
+      progressBar.classList.add("bg-success");
+      progressLabel.innerHTML = `
+        <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-check-circle-fill me-1 text-success" viewBox="0 0 16 16">
+          <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0m-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/>
+        </svg>
+        ${label}
+      `;
+    } else {
+      progressLabel.innerHTML = `
+        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+        ${label}
+      `;
+    }
+    
+    progressDetails.textContent = details;
+  }
+
+  function removeMainProgressBar(delay = 3000) {
+    setTimeout(() => {
+      const progressWrapper = document.getElementById("mainProgressWrapper");
+      if (progressWrapper) {
+        progressWrapper.style.transition = "opacity 0.3s ease";
+        progressWrapper.style.opacity = "0";
+        setTimeout(() => progressWrapper.remove(), 300);
+      }
+    }, delay);
+  }
+
+  // ✅ Send text and wait for completion signal
+  async function sendTextToDeepLAndWait(text, timeoutMs = 120000) {
+    if (!text.trim()) return { success: true };
+
+    const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
+
+    // Create a promise that will be resolved when we get the completion signal
+    const completionPromise = new Promise((resolve, reject) => {
+      pendingTranslations.set(requestId, resolve);
+      
+      // Timeout fallback
+      setTimeout(() => {
+        if (pendingTranslations.has(requestId)) {
+          pendingTranslations.delete(requestId);
+          reject(new Error(`Translation timeout for request ${requestId}`));
+        }
+      }, timeoutMs);
+    });
+
+    // Send the translation request with the unique ID
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      function: (payload, reqId) => {
+        window.postMessage({ 
+          type: "DEEPL_TRANSLATE", 
+          payload: payload,
+          requestId: reqId 
+        }, "*");
+      },
+      args: [text, requestId],
+    });
+
+    console.log(`📤 Sent translation request: ${requestId} (${text.length} chars)`);
+
+    // Wait for the completion signal
+    return await completionPromise;
+  }
+
+  // --- Send to DeepL Button (UPDATED with Progress Bar) ---
   sendBtn.addEventListener("click", async () => {
     const text = inputText.value.trim();
     if (!text) return alert("Please enter text.");
@@ -52,51 +191,129 @@ document.addEventListener("DOMContentLoaded", () => {
       );
     }
 
-    status.innerText = "Send to DeepL...";
+    // Disable button during processing
+    sendBtn.disabled = true;
+    sendBtn.innerHTML = `
+      <span class="spinner-border spinner-border-sm me-1" role="status"></span>
+      Processing...
+    `;
 
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      function: sendTextToContent,
-      args: [text],
-    });
+    // Create progress bar
+    createMainProgressBar();
+    
+    // Calculate text stats for display
+    const charCount = text.length;
+    const wordCount = text.split(/\s+/).filter(w => w).length;
+    
+    // Estimate processing time based on text length
+    const estimatedSeconds = Math.max(5, Math.ceil(charCount / 200));
+    
+    updateMainProgressBar(10, "Sending to DeepL...", `${charCount.toLocaleString()} characters, ~${wordCount.toLocaleString()} words`);
 
-    status.innerText = "Text has been sent.";
+    // Simulate progress while waiting
+    let currentProgress = 10;
+    const progressInterval = setInterval(() => {
+      if (currentProgress < 85) {
+        // Slow down as we get closer to completion
+        const increment = Math.max(1, Math.floor((85 - currentProgress) / 10));
+        currentProgress += increment;
+        updateMainProgressBar(currentProgress, "Translating...", `Estimated ~${Math.max(1, estimatedSeconds - Math.floor(currentProgress / 10))}s remaining`);
+      }
+    }, 1000);
 
-    // --- Input nach Senden löschen ---
-    inputText.value = "";
-    chrome.storage.local.set({ lastInput: "" });
+    try {
+      // Wait for actual completion signal
+      const result = await sendTextToDeepLAndWait(text, 120000);
+      
+      clearInterval(progressInterval);
+      
+      if (result.success) {
+        updateMainProgressBar(100, "Translation complete!", 
+          `Original: ${result.originalLength?.toLocaleString() || charCount.toLocaleString()} chars → Translated: ${result.translatedLength?.toLocaleString() || '?'} chars`);
+        
+        status.innerHTML = `
+          <span class="text-success">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-check-circle-fill me-1" viewBox="0 0 16 16">
+              <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0m-3.97-3.03a.75.75 0 0 0-1.08.022L7.477 9.417 5.384 7.323a.75.75 0 0 0-1.06 1.06L6.97 11.03a.75.75 0 0 0 1.079-.02l3.992-4.99a.75.75 0 0 0-.01-1.05z"/>
+            </svg>
+            Translation saved to history!
+          </span>
+        `;
+        
+        // Clear input after successful translation
+        inputText.value = "";
+        chrome.storage.local.set({ lastInput: "" });
+        
+        removeMainProgressBar(3000);
+      } else {
+        throw new Error(result.error || "Translation failed");
+      }
+    } catch (error) {
+      clearInterval(progressInterval);
+      console.error("Translation error:", error);
+      
+      // Update progress bar to show error
+      const progressWrapper = document.getElementById("mainProgressWrapper");
+      if (progressWrapper) {
+        const progressBar = progressWrapper.querySelector(".progress-bar");
+        const progressLabel = progressWrapper.querySelector(".progress-label");
+        
+        progressBar.classList.remove("bg-primary", "progress-bar-animated");
+        progressBar.classList.add("bg-danger");
+        progressLabel.innerHTML = `
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-exclamation-triangle-fill me-1 text-danger" viewBox="0 0 16 16">
+            <path d="M8.982 1.566a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 0 1-1.1 0L7.1 5.995A.905.905 0 0 1 8 5m.002 6a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/>
+          </svg>
+          Error or timeout
+        `;
+      }
+      
+      status.innerHTML = `
+        <span class="text-warning">
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-exclamation-triangle me-1" viewBox="0 0 16 16">
+            <path d="M7.938 2.016A.13.13 0 0 1 8.002 2a.13.13 0 0 1 .063.016.15.15 0 0 1 .054.057l6.857 11.667c.036.06.035.124.002.183a.2.2 0 0 1-.054.06.1.1 0 0 1-.066.017H1.146a.1.1 0 0 1-.066-.017.2.2 0 0 1-.054-.06.18.18 0 0 1 .002-.183L7.884 2.073a.15.15 0 0 1 .054-.057m1.044-.45a1.13 1.13 0 0 0-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767z"/>
+            <path d="M7.002 12a1 1 0 1 1 2 0 1 1 0 0 1-2 0M7.1 5.995a.905.905 0 1 1 1.8 0l-.35 3.507a.552.552 0 0 1-1.1 0z"/>
+          </svg>
+          Text sent. Check DeepL for results (timeout waiting for confirmation).
+        </span>
+      `;
+      
+      removeMainProgressBar(5000);
+    }
+
+    // Re-enable button
+    sendBtn.disabled = false;
+    sendBtn.innerHTML = `
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-send-fill me-1" viewBox="0 0 16 16">
+        <path d="M15.964.686a.5.5 0 0 0-.65-.65L.767 5.855H.766l-.452.18a.5.5 0 0 0-.082.887l.41.26.001.002 4.995 3.178 3.178 4.995.002.001.26.41a.5.5 0 0 0 .886-.083zm-1.833 1.89L6.637 10.07l-.215-.338a.5.5 0 0 0-.154-.154l-.338-.215 7.494-7.494 1.178-.471z"/>
+      </svg>
+      Send to DeepL
+    `;
+
+    // Clear status after delay
+    setTimeout(() => {
+      if (!document.getElementById("mainProgressWrapper")) {
+        status.innerText = "";
+      }
+    }, 5000);
   });
 
-  /*
-    Damit der Swap-Button einen echten Mehrwert bietet, sollte er den Textinhalt logisch umkehren. Da DeepL oft dazu genutzt wird, einen Text zu verbessern oder zu übersetzen, ist die nützlichste Funktion für diesen Button: Den konvertierten Text aus der Historie zurück in das Eingabefeld zu holen.
-Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konvertierten Text und setzt ihn oben ins Feld ein, damit du ihn sofort weiterbearbeiten oder erneut senden kannst.
-    */
-  // Swap Button: Aktuell nur eine visuelle Umkehrung (da Sprachlogik noch fehlt)
+  // Swap Button
   swapBtn.addEventListener("click", () => {
-    // 1. Visuelle Animation (Rotation)
     swapBtn.style.transform = "rotate(180deg)";
     swapBtn.style.transition = "transform 0.3s ease";
 
-    // Zurücksetzen der Rotation nach der Animation
     setTimeout(() => {
       swapBtn.style.transform = "rotate(0deg)";
     }, 300);
 
-    // 2. Logik: Letzten Eintrag aus dem Speicher holen
     chrome.storage.local.get({ verlauf: [] }, (result) => {
       const verlauf = result.verlauf;
 
       if (verlauf.length > 0) {
-        // Hol den aktuellsten Eintrag (das letzte Element im Array)
         const lastEntry = verlauf[verlauf.length - 1];
-
-        // Den konvertierten Text in das Eingabefeld kopieren
         inputText.value = lastEntry.translated;
-
-        // Fokus auf das Feld setzen für bessere UX
         inputText.focus();
-
-        // Optional: Kleines visuelles Feedback in der Statuszeile
         status.innerText = "Last result restored for re-editing.";
         setTimeout(() => {
           status.innerText = "";
@@ -112,17 +329,13 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
     let text = inputText.value;
     if (!text) return;
 
-    // 1. Zeilenumbrüche innerhalb von Sätzen entfernen (nur einzelne Umbrüche durch Leerzeichen ersetzen)
-    // 2. Mehrfache Leerzeichen auf eines reduzieren
-    // 3. Vorne und hinten trimmen
     const fixedText = text
-      .replace(/([^.\n])\n([^.\n])/g, "$1 $2") // Ersetzt Zeilenumbrüche, die nicht nach einem Punkt kommen
-      .replace(/\s+/g, " ") // Reduziert alle Whitespaces (Tabs, Mehrfache Leerzeichen) auf 1 Leerzeichen
+      .replace(/([^.\n])\n([^.\n])/g, "$1 $2")
+      .replace(/\s+/g, " ")
       .trim();
 
     inputText.value = fixedText;
 
-    // Optisches Feedback
     const btn = document.getElementById("magicFixBtn");
     btn.classList.replace("btn-outline-info", "btn-info");
     setTimeout(
@@ -135,7 +348,6 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
     const text = inputText.value;
     if (text) {
       navigator.clipboard.writeText(text).then(() => {
-        // Kurzes Feedback (Icon-Wechsel)
         const originalHTML = copyInputBtn.innerHTML;
         copyInputBtn.innerHTML =
           '<svg xmlns="http://www.w3.org" width="14" height="14" fill="currentColor" class="bi bi-check-lg" viewBox="0 0 16 16"><path d="M12.736 3.97a.733.733 0 0 1 1.047 0c.286.289.29.756.01 1.05L7.88 12.01a.733.733 0 0 1-1.065.02L3.217 8.384a.757.757 0 0 1 0-1.06.733.733 0 0 1 1.047 0l3.052 3.093 5.4-6.425a.247.247 0 0 1 .02-.022Z"/></svg>';
@@ -160,7 +372,6 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
         if (text) {
           inputText.value = text;
           inputText.focus();
-          // Nach Paste Input speichern
           chrome.storage.local.set({ lastInput: text });
         }
       })
@@ -194,11 +405,10 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
     chrome.storage.local.get({ verlauf: [] }, (result) => {
       const verlauf = result.verlauf;
 
-      // Den Container stylen, falls noch nicht im CSS geschehen
       historyList.style.maxHeight = "500px";
       historyList.style.overflowY = "auto";
       historyList.style.overflowX = "hidden";
-      historyList.className = "custom-scrollbar"; // Optional für schickeres Design
+      historyList.className = "custom-scrollbar";
 
       historyList.innerHTML = "";
 
@@ -235,7 +445,6 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
           </svg> Reuse Original
         </button>
 
-            <!-- Button-Reihe: Jetzt mit flex-fill für gleichmässige Breite -->
         <div class="d-flex flex-nowrap gap-1 mt-2"> 
           <button class="btn btn-outline-success btn-sm flex-fill d-flex align-items-center justify-content-center copy-btn-original" style="font-size: 0.7rem; padding: 4px 2px;">
             <svg xmlns="http://www.w3.org" width="12" height="12" fill="currentColor" class="bi bi-clipboard me-1" viewBox="0 0 16 16"><path d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1z"/><path d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0z"/></svg>
@@ -254,7 +463,6 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
           </svg> Reuse Converted
         </button>
 
-        <!-- Button-Reihe: Jetzt mit flex-fill für gleichmässige Breite -->
         <div class="d-flex flex-nowrap gap-1 mt-2">
           <button class="btn btn-outline-primary btn-sm flex-fill d-flex align-items-center justify-content-center details-entry" style="font-size: 0.7rem; padding: 4px 2px;">
             <svg xmlns="http://www.w3.org" width="12" height="12" fill="currentColor" class="bi bi-info-circle me-1" viewBox="0 0 16 16"><path d="M8 15A7 7 0 1 1 8 1a7 7 0 0 1 0 14m0 1A8 8 0 1 0 8 0a8 8 0 0 0 0 16"/><path d="m8.93 6.588-2.29.287-.082.38.45.083c.294.07.352.176.288.469l-.738 3.468c-.194.897.105 1.319.808 1.319.545 0 1.178-.252 1.465-.598l.088-.416c-.2.176-.492.246-.686.246-.275 0-.375-.193-.304-.533zM9 4.5a1 1 0 1 1-2 0 1 1 0 0 1 2 0"/></svg>
@@ -292,45 +500,22 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
 `;
 
           // Reuse-Logik mit Animation
-          const setupReuse = (btnSelector, text) => {
-            const btn = item.querySelector(btnSelector);
-            btn.addEventListener("click", () => {
-              const icon = btn.querySelector("svg");
-              icon.style.transition = "transform 0.4s ease";
-              icon.style.transform = "rotate(-360deg)";
-
-              inputText.value = text;
-              chrome.storage.local.set({ lastInput: text });
-              inputText.focus();
-
-              setTimeout(() => {
-                icon.style.transition = "none";
-                icon.style.transform = "rotate(0deg)";
-              }, 400);
-            });
-          };
-
-          // Hilfsfunktion für die Animation und Logik
           const handleReuse = (btn, text) => {
-            // 1. Animation: Das SVG-Icon im Button finden und drehen
             const icon = btn.querySelector("svg");
             if (icon) {
               icon.style.transition = "transform 0.4s ease";
               icon.style.transform = "rotate(-360deg)";
 
-              // Nach der Animation zurücksetzen (ohne dass man es sieht)
               setTimeout(() => {
                 icon.style.transition = "none";
                 icon.style.transform = "rotate(0deg)";
               }, 400);
             }
 
-            // 2. Logik: Text in das Eingabefeld (inputText) einfügen
             if (typeof inputText !== "undefined") {
               inputText.value = text;
               chrome.storage.local.set({ lastInput: inputText.value });
 
-              // Optionales Feedback (falls dein Status-Element existiert)
               if (typeof status !== "undefined") {
                 status.innerText = "Text restored to input field.";
                 setTimeout(() => {
@@ -340,7 +525,6 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
             }
           };
 
-          // Die Event-Listener in deinem Loop:
           item
             .querySelector(".reuse-original")
             .addEventListener("click", function () {
@@ -353,7 +537,6 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
               handleReuse(this, entry.translated);
             });
 
-          // Bestehende Event-Listener (Details, Copy, Delete...)
           item.querySelector(".details-entry").addEventListener("click", () => {
             const url =
               chrome.runtime.getURL("history-detail.html") + `?id=${entry.id}`;
@@ -384,7 +567,6 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
               });
             });
 
-          // Event: Dropdown-Items
           item.querySelectorAll(".dropdown-item").forEach((dropdownItem) => {
             dropdownItem.addEventListener("click", (e) => {
               e.preventDefault();
@@ -430,7 +612,6 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
         filename = `translation_${entryId}.csv`;
         mimeType = "text/csv";
       } else if (format === "word") {
-        // Wir nutzen HTML-Content, deklarieren ihn aber explizit für Word
         const header =
           "<html xmlns:o='urn:schemas-microsoft-com:office:office' " +
           "xmlns:w='urn:schemas-microsoft-com:office:word' " +
@@ -448,7 +629,6 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
 
         content = header + body + footer;
         filename = `translation_${entryId}.docx`;
-        // Wichtig: Office-spezifischer MIME-Type für Word-Dokumente
         mimeType =
           "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
       } else if (format === "pdf") {
@@ -498,7 +678,7 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
 
         doc.save(`translation_${entry.id}.pdf`);
 
-        return; // ⭐ WICHTIG
+        return;
       } else if (format === "md") {
         content = `### Original\n\n${entry.original}\n\n---\n\n### Converted\n\n${entry.translated}`;
         filename = `translation_${entryId}.md`;
@@ -515,13 +695,13 @@ Hier ist die vollständige Überarbeitung. Der Button nimmt nun den letzten konv
     });
   }
 
-  // Hilfsfunktion zum Entschärfen von <, > etc.
   function sanitize(text) {
     const div = document.createElement("div");
     div.innerText = text;
     return div.innerHTML;
   }
 });
+
 document.getElementById("bugBtn").addEventListener("click", () => {
   window.open("https://forms.gle/7LNwEpVCbXwunT6s8");
 });
