@@ -12,6 +12,12 @@ document.addEventListener("DOMContentLoaded", () => {
   // ✅ Track pending translations for completion signals
   const pendingTranslations = new Map();
 
+  chrome.storage.local.get({documents: []}, function(data){
+
+        data.documents.forEach(renderUploadEntry);
+
+    });
+
   // ✅ Listen for completion messages from content script
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === "DEEPL_TRANSLATION_COMPLETE") {
