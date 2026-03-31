@@ -3,13 +3,26 @@
 // Supports: .docx (mammoth.js) + .pdf (pdf.js)
 // ============================================
 
-// Session-local store of File objects (not persisted across popup reopens)
-const uploadedFiles = new Map();
+// ─── Constants ────────────────────────────────────────────────────────────────
 
-// Pending upload translations: requestId -> { resolve, reject }
-const pendingUploadTranslations = new Map();
+// Keep chunks well under DeepL's 1500-char limit so content.js never needs
+// to split them further — giving us exact 1-chunk-per-request progress.
+const UPLOAD_CHUNK_MAX_CHARS = 1400;
 
-// Listen for DEEPL_TRANSLATION_COMPLETE from content.js for upload-originated requests
+// ─── Session state ────────────────────────────────────────────────────────────
+
+// In-memory File object store.  Lost when the popup/page is closed —
+// that is why stored (old) entries need a Re-select button.
+const uploadedFiles = new Map(); // docId  →  File
+
+// One entry per in-flight chunk translation; mirrors loop.js pendingTranslations
+const pendingUploadTranslations = new Map(); // requestId  →  { resolve, reject }
+
+// ─── Completion signal listener ───────────────────────────────────────────────
+// content.js broadcasts DEEPL_TRANSLATION_COMPLETE for every requestId it finishes.
+// Both popup.js and this file register independent listeners; each only handles
+// requestIds it owns, so there is no conflict.
+
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === "DEEPL_TRANSLATION_COMPLETE") {
     const pending = pendingUploadTranslations.get(message.requestId);
@@ -40,7 +53,7 @@ document.getElementById("fileUpload").addEventListener("change", function (event
     id,
     name: file.name,
     size: file.size,
-    type: ext, // "docx" | "pdf"
+    type: ext,          // "docx" | "pdf"
     status: "uploaded",
     created: Date.now(),
   };
@@ -53,24 +66,41 @@ document.getElementById("fileUpload").addEventListener("change", function (event
   });
 });
 
-// ─── Render a document entry in the list ─────────────────────────────────────
+// ─── Render a document entry ──────────────────────────────────────────────────
+// Called both for freshly-selected files (file is in uploadedFiles) and for
+// entries loaded from chrome.storage on popup open (file is NOT in uploadedFiles).
+// The two cases need different action UIs.
 
 function renderUploadEntry(doc) {
   const list = document.getElementById("uploadList");
   if (!list) return;
 
-  // Determine file type (default to docx for legacy entries without type)
-  const isPDF = doc.type === "pdf";
-  const iconClass = isPDF
-    ? "bi-file-earmark-pdf text-danger"
-    : "bi-file-earmark-word text-primary";
+  const isPDF    = doc.type === "pdf";
+  const iconClass  = isPDF ? "bi-file-earmark-pdf text-danger" : "bi-file-earmark-word text-primary";
   const badgeClass = isPDF ? "bg-danger" : "bg-primary";
-  const badgeText = isPDF ? "PDF" : "DOCX";
-  const sizeKb = doc.size ? Math.round(doc.size / 1024) + " KB" : "";
+  const badgeText  = isPDF ? "PDF" : "DOCX";
+  const sizeKb     = doc.size ? Math.round(doc.size / 1024) + " KB" : "";
+
+  // Does this session already hold a reference to the file?
+  const fileAvailable = uploadedFiles.has(doc.id);
 
   const item = document.createElement("div");
   item.className = "list-group-item py-2 px-3";
   item.dataset.docId = doc.id;
+
+  // Action area differs depending on whether the File object is available
+  const actionsHTML = fileAvailable
+    ? `<button class="btn btn-sm btn-success startConvert" data-id="${doc.id}">
+         <i class="bi bi-play-fill"></i> Start
+       </button>`
+    : `<label class="btn btn-sm btn-outline-secondary mb-0"
+              title="File not in this session – click to re-select"
+              style="cursor:pointer;">
+         <i class="bi bi-folder2-open me-1"></i>Re-select
+         <input type="file" accept=".docx,.pdf"
+                class="d-none reselect-input"
+                data-doc-id="${doc.id}">
+       </label>`;
 
   item.innerHTML = `
     <div class="d-flex justify-content-between align-items-start gap-2">
@@ -84,19 +114,37 @@ function renderUploadEntry(doc) {
           </div>
         </div>
       </div>
-      <div class="d-flex gap-2 align-items-center flex-shrink-0 upload-actions" data-doc-id="${doc.id}">
-        <button class="btn btn-sm btn-success startConvert" data-id="${doc.id}">
-          <i class="bi bi-play-fill"></i> Start
-        </button>
+      <div class="d-flex gap-2 align-items-center flex-shrink-0 upload-actions"
+           data-doc-id="${doc.id}">
+        ${actionsHTML}
       </div>
     </div>
     <div class="upload-progress mt-2 d-none" data-doc-id="${doc.id}"></div>
   `;
 
+  // Wire up the re-select input if present
+  const reselectInput = item.querySelector(".reselect-input");
+  if (reselectInput) {
+    reselectInput.addEventListener("change", function (e) {
+      const newFile = e.target.files[0];
+      if (!newFile) return;
+
+      // Store under the ORIGINAL docId so startConversion finds it
+      uploadedFiles.set(doc.id, newFile);
+
+      // Swap the label for a proper Start button
+      const actionsDiv = item.querySelector(".upload-actions");
+      actionsDiv.innerHTML = `
+        <button class="btn btn-sm btn-success startConvert" data-id="${doc.id}">
+          <i class="bi bi-play-fill"></i> Start
+        </button>`;
+    });
+  }
+
   list.prepend(item);
 }
 
-// ─── Delegated click handler for Start / Re-run buttons ──────────────────────
+// ─── Delegated click handler for Start / Re-run ───────────────────────────────
 
 document.getElementById("uploadList").addEventListener("click", function (e) {
   const btn = e.target.closest(".startConvert");
@@ -104,9 +152,9 @@ document.getElementById("uploadList").addEventListener("click", function (e) {
   startConversion(btn.dataset.id);
 });
 
-// ─── Open Upload in a dedicated full-page tab ─────────────────────────────────
+// ─── Open Upload in a full-page tab ──────────────────────────────────────────
 
-document.getElementById("openUploadPageBtn")?.addEventListener("click", function () {
+document.getElementById("openUploadPageBtn")?.addEventListener("click", () => {
   chrome.tabs.create({ url: chrome.runtime.getURL("upload-page.html") });
 });
 
@@ -115,126 +163,196 @@ document.getElementById("openUploadPageBtn")?.addEventListener("click", function
 async function startConversion(docId) {
   const file = uploadedFiles.get(docId);
   if (!file) {
-    alert(
-      "The file is no longer available in this session.\n\nPlease select it again using the file picker."
-    );
+    // Should not happen because renderUploadEntry guards against it,
+    // but handle it gracefully instead of alerting.
+    const actionsDiv = document.querySelector(`.upload-actions[data-doc-id="${docId}"]`);
+    if (actionsDiv) {
+      actionsDiv.innerHTML = `
+        <label class="btn btn-sm btn-outline-warning mb-0" style="cursor:pointer;"
+               title="Session expired – re-select the file">
+          <i class="bi bi-folder2-open me-1"></i>Re-select
+          <input type="file" accept=".docx,.pdf" class="d-none reselect-input"
+                 data-doc-id="${docId}">
+        </label>`;
+      actionsDiv.querySelector(".reselect-input").addEventListener("change", (e) => {
+        if (e.target.files[0]) {
+          uploadedFiles.set(docId, e.target.files[0]);
+          actionsDiv.innerHTML = `
+            <button class="btn btn-sm btn-success startConvert" data-id="${docId}">
+              <i class="bi bi-play-fill"></i> Start
+            </button>`;
+        }
+      });
+    }
     return;
   }
 
-  // Look for an active DeepL tab (works from both popup and full-page contexts)
+  // Verify a DeepL tab is open (works from both popup and full-page contexts)
   const deeplTab = await findDeepLTab();
   if (!deeplTab) {
-    alert(
-      "No DeepL tab found.\n\nPlease open https://www.deepl.com/translator in a tab and try again."
-    );
+    alert("No DeepL tab found.\n\nPlease open https://www.deepl.com/translator in another tab and try again.");
     return;
   }
 
-  const actionsDiv = document.querySelector(`.upload-actions[data-doc-id="${docId}"]`);
+  const actionsDiv  = document.querySelector(`.upload-actions[data-doc-id="${docId}"]`);
   const progressDiv = document.querySelector(`.upload-progress[data-doc-id="${docId}"]`);
-  const startBtn = actionsDiv?.querySelector(".startConvert");
+  const startBtn    = actionsDiv?.querySelector(".startConvert");
 
-  // ── UI: show "Extracting…" state
   if (startBtn) {
     startBtn.disabled = true;
-    startBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1" role="status"></span> Extracting…`;
+    startBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Extracting…`;
   }
-  showProgress(progressDiv, "info", "Extracting text from file…");
+  renderProgressBar(progressDiv, 0, 1, "Extracting text from file…");
 
   try {
-    // Step 1: Extract text
+    // ── Step 1: Extract text ────────────────────────────────────────────────
     const isPDF = file.name.toLowerCase().endsWith(".pdf");
-    let text;
-    if (isPDF) {
-      text = await extractPDFText(file);
-    } else {
-      text = await extractDocxText(file);
-    }
+    const text  = isPDF ? await extractPDFText(file) : await extractDocxText(file);
 
-    if (!text || !text.trim()) {
-      throw new Error("No readable text found in the file.");
-    }
+    if (!text || !text.trim()) throw new Error("No readable text found in the file.");
 
-    // Save extracted text to storage
     saveExtractedText(docId, text);
 
-    // ── UI: show "Translating…" state
+    // ── Step 2: Split into chunks (same algorithm as content.js splitText) ──
+    const chunks = splitTextForUpload(text);
+
     if (startBtn) {
-      startBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1" role="status"></span> Translating…`;
+      startBtn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Translating…`;
     }
-    showProgress(
-      progressDiv,
-      "info",
-      `Translating ${text.length.toLocaleString()} characters… (this may take a while)`
-    );
 
-    // Step 2: Send to DeepL via the existing batch messaging system
-    const requestId = crypto.randomUUID();
-    const startTime = Date.now();
+    // ── Step 3: Translate chunk-by-chunk (mirrors loop.js startGroupTranslation)
+    const translatedChunks = [];
+    let failCount = 0;
 
-    // Register this request so our onMessage listener can resolve it
-    const completionPromise = new Promise((resolve, reject) => {
-      pendingUploadTranslations.set(requestId, { resolve, reject });
-      // 3-minute timeout for large documents
-      setTimeout(() => {
-        if (pendingUploadTranslations.has(requestId)) {
-          pendingUploadTranslations.delete(requestId);
-          reject(new Error("Translation timed out (3 min). Try splitting the document into smaller parts."));
+    for (let i = 0; i < chunks.length; i++) {
+      renderProgressBar(
+        progressDiv,
+        i,
+        chunks.length,
+        `Translating chunk ${i + 1} of ${chunks.length}…`
+      );
+
+      const chunkStartTime = Date.now();
+
+      try {
+        const result = await sendChunkAndWait(chunks[i], deeplTab.id, 90_000);
+
+        if (result.success) {
+          const translated = await getLatestTranslation(chunkStartTime);
+          translatedChunks.push(translated || "");
+        } else {
+          failCount++;
+          translatedChunks.push("");
+          console.warn(`Chunk ${i + 1} reported failure:`, result.error);
         }
-      }, 180_000);
-    });
+      } catch (chunkErr) {
+        failCount++;
+        translatedChunks.push("");
+        console.error(`Chunk ${i + 1} error:`, chunkErr);
+      }
 
-    await chrome.scripting.executeScript({
-      target: { tabId: deeplTab.id },
-      function: (payload, reqId) => {
-        window.postMessage({ type: "DEEPL_TRANSLATE", payload, requestId: reqId }, "*");
-      },
-      args: [text, requestId],
-    });
-
-    // Step 3: Wait for translation completion signal from content.js
-    const result = await completionPromise;
-
-    if (!result.success) {
-      throw new Error(result.error || "Translation failed.");
+      // 1 s gap between chunks — identical to loop.js
+      if (i < chunks.length - 1) await wait(1000);
     }
 
-    // Step 4: Retrieve the translated text from the history entry just saved
-    const translatedText = await getLatestTranslation(startTime);
-    if (!translatedText) {
-      throw new Error("Translation completed but the result could not be retrieved from history.");
+    // ── Step 4: Assemble final text and update UI ───────────────────────────
+    const finalText = translatedChunks.filter(Boolean).join("\n\n");
+    const baseName  = file.name.replace(/\.(docx|pdf)$/i, "");
+
+    if (failCount > 0) {
+      renderProgressBar(
+        progressDiv,
+        chunks.length,
+        chunks.length,
+        `Done with ${failCount} chunk(s) failed — partial result available.`,
+        "warning"
+      );
+    } else {
+      renderProgressBar(
+        progressDiv,
+        chunks.length,
+        chunks.length,
+        `Translation complete! ${finalText.length.toLocaleString()} characters.`,
+        "success"
+      );
     }
-
-    // Step 5: Store result on the DOM node for download and update UI
-    const baseName = file.name.replace(/\.(docx|pdf)$/i, "");
-
-    showProgress(progressDiv, "success", `Translation complete! ${result.translatedLength?.toLocaleString() ?? "?"} characters.`);
 
     if (actionsDiv) {
       actionsDiv.innerHTML = `
         <button class="btn btn-sm btn-primary download-result">
           <i class="bi bi-download me-1"></i> Download DOCX
         </button>
-        <button class="btn btn-sm btn-outline-secondary startConvert" data-id="${docId}">
+        <button class="btn btn-sm btn-outline-secondary startConvert" data-id="${docId}"
+                title="Translate again">
           <i class="bi bi-arrow-clockwise"></i>
-        </button>
-      `;
-      // Re-register file reference so Re-run button works
-      // (file is still in uploadedFiles Map)
+        </button>`;
 
       actionsDiv.querySelector(".download-result").addEventListener("click", () => {
-        downloadTranslatedDocx(translatedText, baseName);
+        downloadTranslatedDocx(finalText, baseName);
       });
     }
+
   } catch (err) {
     console.error("Upload conversion error:", err);
-    showProgress(progressDiv, "danger", err.message);
+    renderProgressBar(progressDiv, 0, 1, err.message, "danger");
 
     if (startBtn) {
       startBtn.disabled = false;
       startBtn.innerHTML = `<i class="bi bi-play-fill"></i> Retry`;
     }
   }
+}
+
+// ─── Text splitter ────────────────────────────────────────────────────────────
+// Mirrors splitText() in content.js.  Running it here (instead of letting
+// content.js split) gives us the exact chunk count for the progress bar.
+
+function splitTextForUpload(text, maxChars = UPLOAD_CHUNK_MAX_CHARS) {
+  const parts = [];
+  let current = "";
+
+  for (const word of text.split(" ")) {
+    if ((current + " " + word).length > maxChars) {
+      if (current) parts.push(current.trim());
+      current = word;
+    } else {
+      current += (current ? " " : "") + word;
+    }
+  }
+
+  if (current.trim()) parts.push(current.trim());
+  return parts.filter(Boolean);
+}
+
+// ─── Single-chunk send + wait (mirrors loop.js sendWithRetryAndWait) ─────────
+
+async function sendChunkAndWait(chunkText, deeplTabId, timeoutMs) {
+  const requestId = crypto.randomUUID();
+
+  const completionPromise = new Promise((resolve, reject) => {
+    pendingUploadTranslations.set(requestId, { resolve, reject });
+
+    setTimeout(() => {
+      if (pendingUploadTranslations.has(requestId)) {
+        pendingUploadTranslations.delete(requestId);
+        reject(new Error(`Chunk timed out after ${timeoutMs / 1000}s`));
+      }
+    }, timeoutMs);
+  });
+
+  await chrome.scripting.executeScript({
+    target: { tabId: deeplTabId },
+    function: (payload, reqId) => {
+      window.postMessage({ type: "DEEPL_TRANSLATE", payload, requestId: reqId }, "*");
+    },
+    args: [chunkText, requestId],
+  });
+
+  return completionPromise;
+}
+
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 // ─── Text extraction: DOCX via mammoth.js ─────────────────────────────────────
@@ -259,11 +377,8 @@ function extractDocxText(file) {
 
 async function extractPDFText(file) {
   const pdfjsLib = window.pdfjsLib;
-  if (!pdfjsLib) {
-    throw new Error("PDF library not loaded. Please reload the extension.");
-  }
+  if (!pdfjsLib) throw new Error("PDF library not loaded. Please reload the extension.");
 
-  // Point to the local worker file inside the extension
   pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL("js/pdf.worker.min.js");
 
   const arrayBuffer = await file.arrayBuffer();
@@ -271,11 +386,12 @@ async function extractPDFText(file) {
 
   const pageParts = [];
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-    const page = await pdf.getPage(pageNum);
+    const page    = await pdf.getPage(pageNum);
     const content = await page.getTextContent();
-    // Join items; insert newline when a significant vertical gap is detected
+
+    // Preserve paragraph breaks by detecting vertical gaps between text items
     let pageText = "";
-    let lastY = null;
+    let lastY    = null;
     for (const item of content.items) {
       if (lastY !== null && Math.abs(item.transform[5] - lastY) > 5) {
         pageText += "\n";
@@ -289,7 +405,8 @@ async function extractPDFText(file) {
   return pageParts.filter(Boolean).join("\n\n");
 }
 
-// ─── Find an open DeepL translator tab ───────────────────────────────────────
+// ─── Find an open DeepL tab ───────────────────────────────────────────────────
+// Searches ALL tabs — works from the popup AND from the full-page upload view.
 
 async function findDeepLTab() {
   const deeplRegex = /^https:\/\/www\.deepl\.com\/[^/]+\/(translate|translator|write)/;
@@ -297,7 +414,9 @@ async function findDeepLTab() {
   return tabs.find((t) => t.url && deeplRegex.test(t.url)) ?? null;
 }
 
-// ─── Retrieve the most-recently saved history entry after a given timestamp ──
+// ─── Retrieve the translated text for a just-completed chunk ─────────────────
+// content.js saves each translation to verlauf BEFORE sending the completion
+// signal, so by the time this runs the entry is guaranteed to be there.
 
 function getLatestTranslation(afterTimestamp) {
   return new Promise((resolve) => {
@@ -310,21 +429,18 @@ function getLatestTranslation(afterTimestamp) {
   });
 }
 
-// ─── Persist extracted text to the documents store ───────────────────────────
+// ─── Persist extracted text ───────────────────────────────────────────────────
 
 function saveExtractedText(docId, text) {
-  chrome.storage.local.get({ documents: [] }, function (data) {
+  chrome.storage.local.get({ documents: [] }, (data) => {
     const docs = data.documents;
-    const doc = docs.find((d) => d.id === docId);
-    if (doc) {
-      doc.text = text;
-      doc.status = "parsed";
-    }
+    const doc  = docs.find((d) => d.id === docId);
+    if (doc) { doc.text = text; doc.status = "parsed"; }
     chrome.storage.local.set({ documents: docs });
   });
 }
 
-// ─── Generate and trigger download of a Word (.docx) file ────────────────────
+// ─── Download result as Word document ────────────────────────────────────────
 
 function downloadTranslatedDocx(translatedText, baseName) {
   const header =
@@ -333,52 +449,60 @@ function downloadTranslatedDocx(translatedText, baseName) {
     "xmlns='http://www.w3.org'><head><meta charset='utf-8'></head><body>";
   const footer = "</body></html>";
 
-  const escapedText = translatedText
+  const safe = translatedText
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/\n/g, "<br>");
 
   const body = `
-    <h2 style="font-family: Arial, sans-serif; color: #0d6efd;">Translated Document</h2>
-    <p style="color: #6c757d; font-family: Arial; font-size: 11px; margin-top: 0;">
+    <h2 style="font-family:Arial,sans-serif;color:#0d6efd;">Translated Document</h2>
+    <p style="color:#6c757d;font-family:Arial;font-size:11px;margin-top:0;">
       Source: ${baseName} &nbsp;|&nbsp; ${new Date().toLocaleString()}
     </p>
     <hr>
-    <div style="font-family: Arial; font-size: 13px; line-height: 1.7;">${escapedText}</div>
-  `;
+    <div style="font-family:Arial;font-size:13px;line-height:1.7;">${safe}</div>`;
 
   const blob = new Blob([header + body + footer], {
     type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   });
-  const url = URL.createObjectURL(blob);
   chrome.downloads.download({
-    url,
+    url: URL.createObjectURL(blob),
     filename: `${baseName}_translated.docx`,
     saveAs: true,
   });
 }
 
-// ─── Progress bar helper ──────────────────────────────────────────────────────
+// ─── Progress bar ─────────────────────────────────────────────────────────────
+// type: "active" (default, striped+animated) | "success" | "warning" | "danger"
 
-function showProgress(container, type, message) {
+function renderProgressBar(container, current, total, label, type = "active") {
   if (!container) return;
   container.classList.remove("d-none");
 
-  const colorMap = {
-    info: { bar: "bg-info", icon: "bi-hourglass-split text-info", text: "text-muted" },
-    success: { bar: "bg-success", icon: "bi-check-circle-fill text-success", text: "text-success" },
-    danger: { bar: "bg-danger", icon: "bi-exclamation-triangle-fill text-danger", text: "text-danger" },
-  };
-  const c = colorMap[type] || colorMap.info;
-  const animated = type === "info" ? "progress-bar-striped progress-bar-animated" : "";
+  const percent = total > 0 ? Math.round((current / total) * 100) : 0;
+
+  const cfg = {
+    active:  { bar: "bg-primary progress-bar-striped progress-bar-animated", icon: "bi-hourglass-split text-info",    text: "text-muted"    },
+    success: { bar: "bg-success",                                             icon: "bi-check-circle-fill text-success", text: "text-success"  },
+    warning: { bar: "bg-warning",                                             icon: "bi-exclamation-circle text-warning",text: "text-warning"  },
+    danger:  { bar: "bg-danger",                                              icon: "bi-x-circle-fill text-danger",      text: "text-danger"   },
+  }[type] ?? cfg.active;
 
   container.innerHTML = `
-    <div class="progress mb-1" style="height: 4px;">
-      <div class="progress-bar ${c.bar} ${animated}" style="width: 100%"></div>
+    <div class="d-flex justify-content-between align-items-center mb-1">
+      <small class="${cfg.text}">
+        <i class="bi ${cfg.icon} me-1"></i>${label}
+      </small>
+      <small class="text-muted">${percent}%</small>
     </div>
-    <small class="${c.text}">
-      <i class="bi ${c.icon} me-1"></i>${message}
-    </small>
-  `;
+    <div class="progress" style="height:5px;">
+      <div class="progress-bar ${cfg.bar}"
+           role="progressbar"
+           style="width:${percent}%"
+           aria-valuenow="${percent}"
+           aria-valuemin="0"
+           aria-valuemax="100">
+      </div>
+    </div>`;
 }
