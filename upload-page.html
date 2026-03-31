@@ -127,7 +127,6 @@
             <!-- Drop-zone / File picker -->
             <div class="upload-drop-zone mb-4" id="dropZone">
                 <input
-                    class="form-control visually-hidden"
                     type="file"
                     id="fileUpload"
                     accept=".docx,.pdf"
@@ -143,33 +142,6 @@
 
         <script src="js/bootstrap.bundle.min.js"></script>
         <script src="upload.js" defer></script>
-
-        <script>
-            // Drag-and-drop visual feedback for the drop zone
-            const dropZone = document.getElementById("dropZone");
-            const fileInput = document.getElementById("fileUpload");
-
-            // Make the whole drop-zone clickable
-            dropZone.addEventListener("click", (e) => {
-                if (e.target !== fileInput) fileInput.click();
-            });
-
-            dropZone.addEventListener("dragover", (e) => {
-                e.preventDefault();
-                dropZone.classList.add("drag-over");
-            });
-            dropZone.addEventListener("dragleave", () => dropZone.classList.remove("drag-over"));
-            dropZone.addEventListener("drop", (e) => {
-                e.preventDefault();
-                dropZone.classList.remove("drag-over");
-                if (e.dataTransfer.files.length) {
-                    // Programmatically assign dropped file to the input
-                    const dt = new DataTransfer();
-                    dt.items.add(e.dataTransfer.files[0]);
-                    fileInput.files = dt.files;
-                    fileInput.dispatchEvent(new Event("change", { bubbles: true }));
-                }
-            });
-        </script>
+        <script src="upload-page.js" defer></script>
     </body>
 </html>
