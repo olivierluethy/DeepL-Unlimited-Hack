@@ -12,11 +12,19 @@ document.addEventListener("DOMContentLoaded", () => {
   // ✅ Track pending translations for completion signals
   const pendingTranslations = new Map();
 
+  // Multi-selection state for history
+  let selectedIds = new Set();
+  let currentVerlauf = [];
+
+  chrome.storage.local.get({ documents: [] }, function (data) {
+    data.documents.forEach(renderUploadEntry);
+  });
+
   // ✅ Listen for completion messages from content script
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === "DEEPL_TRANSLATION_COMPLETE") {
       console.log("📨 Received completion signal:", message.requestId);
-      
+
       const resolver = pendingTranslations.get(message.requestId);
       if (resolver) {
         resolver(message);
@@ -25,8 +33,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
-  tooltipTriggerList.forEach(el => new bootstrap.Tooltip(el));
+  const tooltipTriggerList = document.querySelectorAll(
+    '[data-bs-toggle="tooltip"]',
+  );
+  tooltipTriggerList.forEach((el) => new bootstrap.Tooltip(el));
 
   // Initialisiere Bootstrap Tabs
   const tabList = document.querySelectorAll('#appTabs a[data-bs-toggle="tab"]');
@@ -37,6 +47,133 @@ document.addEventListener("DOMContentLoaded", () => {
         loadHistory();
       }
     });
+  });
+
+  // --- History multi-selection helpers ---
+
+  function updateBulkBar() {
+    const bar = document.getElementById("historyBulkBar");
+    const countEl = document.getElementById("selectedCount");
+    const selectAllBtn = document.getElementById("selectAllHistoryBtn");
+    const count = selectedIds.size;
+    const total = currentVerlauf.length;
+
+    countEl.textContent = count === 1 ? "1 selected" : `${count} selected`;
+
+    if (count === 0) {
+      bar.classList.add("d-none");
+    } else {
+      bar.classList.remove("d-none");
+    }
+
+    if (total > 0) {
+      selectAllBtn.classList.remove("d-none");
+      selectAllBtn.textContent =
+        count === total ? "Deselect all" : "Select all";
+    } else {
+      selectAllBtn.classList.add("d-none");
+    }
+  }
+
+  document
+    .getElementById("selectAllHistoryBtn")
+    .addEventListener("click", () => {
+      if (selectedIds.size === currentVerlauf.length) {
+        selectedIds.clear();
+        document.querySelectorAll(".history-select-cb").forEach((cb) => {
+          cb.checked = false;
+        });
+        document
+          .querySelectorAll(".history-entry")
+          .forEach((e) => e.classList.remove("selected"));
+      } else {
+        currentVerlauf.forEach((e) => selectedIds.add(e.id));
+        document.querySelectorAll(".history-select-cb").forEach((cb) => {
+          cb.checked = true;
+        });
+        document
+          .querySelectorAll(".history-entry")
+          .forEach((e) => e.classList.add("selected"));
+      }
+      updateBulkBar();
+    });
+
+  document.getElementById("bulkCopyBtn").addEventListener("click", () => {
+    const selected = currentVerlauf.filter((e) => selectedIds.has(e.id));
+    const text = selected.map((e) => e.translated).join("\n\n---\n\n");
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.getElementById("bulkCopyBtn");
+      const oldHTML = btn.innerHTML;
+      btn.innerHTML = "✅ Copied";
+      btn.classList.replace("btn-outline-success", "btn-success");
+      setTimeout(() => {
+        btn.innerHTML = oldHTML;
+        btn.classList.replace("btn-success", "btn-outline-success");
+      }, 2000);
+    });
+  });
+
+  document.getElementById("bulkExportTxt").addEventListener("click", (e) => {
+    e.preventDefault();
+    const selected = currentVerlauf.filter((e) => selectedIds.has(e.id));
+    if (!selected.length) return;
+    const content = selected
+      .map(
+        (e, i) =>
+          `[${i + 1}] ${new Date(e.timestamp).toLocaleString()}\n\nOriginal:\n${e.original}\n\nConverted:\n${e.translated}`,
+      )
+      .join("\n\n" + "=".repeat(40) + "\n\n");
+    const blob = new Blob([content], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    chrome.downloads.download({
+      url,
+      filename: `translations_${Date.now()}.txt`,
+      saveAs: true,
+    });
+  });
+
+  document.getElementById("bulkExportWord").addEventListener("click", (e) => {
+    e.preventDefault();
+    const selected = currentVerlauf.filter((e) => selectedIds.has(e.id));
+    if (!selected.length) return;
+    const header =
+      "<html xmlns:o='urn:schemas-microsoft-com:office:office' " +
+      "xmlns:w='urn:schemas-microsoft-com:office:word' " +
+      "xmlns='http://www.w3.org'><head><meta charset='utf-8'></head><body>";
+    const footer = "</body></html>";
+    const body = selected
+      .map(
+        (e, i) =>
+          `<h3 style="color:#6c757d;font-family:sans-serif;">[${i + 1}] ${new Date(e.timestamp).toLocaleString()}</h3>` +
+          `<h4 style="color:#6c757d;font-family:sans-serif;">Original:</h4>` +
+          `<p style="font-family:Arial;white-space:pre-wrap;">${e.original.replace(/\n/g, "<br>")}</p>` +
+          `<h4 style="color:#0d6efd;font-family:sans-serif;">Converted:</h4>` +
+          `<p style="font-family:Arial;white-space:pre-wrap;">${e.translated.replace(/\n/g, "<br>")}</p><hr>`,
+      )
+      .join("");
+    const content = header + body + footer;
+    const blob = new Blob([content], {
+      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    });
+    const url = URL.createObjectURL(blob);
+    chrome.downloads.download({
+      url,
+      filename: `translations_${Date.now()}.docx`,
+      saveAs: true,
+    });
+  });
+
+  document.getElementById("bulkDeleteBtn").addEventListener("click", () => {
+    const count = selectedIds.size;
+    if (!count) return;
+    if (
+      confirm(`Delete ${count} selected ${count === 1 ? "entry" : "entries"}?`)
+    ) {
+      chrome.storage.local.get({ verlauf: [] }, (result) => {
+        const filtered = result.verlauf.filter((e) => !selectedIds.has(e.id));
+        chrome.storage.local.set({ verlauf: filtered }, () => loadHistory());
+      });
+    }
   });
 
   // --- Lade gespeicherten Input beim Start ---
@@ -79,10 +216,10 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
       <small class="text-muted d-block mt-1 progress-details"></small>
     `;
-    
+
     // Insert after the status element
     status.after(progressWrapper);
-    
+
     return progressWrapper;
   }
 
@@ -98,7 +235,7 @@ document.addEventListener("DOMContentLoaded", () => {
     progressBar.style.width = `${percent}%`;
     progressBar.setAttribute("aria-valuenow", percent);
     progressPercent.textContent = `${percent}%`;
-    
+
     if (percent === 100) {
       progressBar.classList.remove("bg-primary", "progress-bar-animated");
       progressBar.classList.add("bg-success");
@@ -114,7 +251,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ${label}
       `;
     }
-    
+
     progressDetails.textContent = details;
   }
 
@@ -134,7 +271,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!text.trim()) return { success: true };
 
     const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
+
     const [tab] = await chrome.tabs.query({
       active: true,
       currentWindow: true,
@@ -143,7 +280,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Create a promise that will be resolved when we get the completion signal
     const completionPromise = new Promise((resolve, reject) => {
       pendingTranslations.set(requestId, resolve);
-      
+
       // Timeout fallback
       setTimeout(() => {
         if (pendingTranslations.has(requestId)) {
@@ -157,16 +294,21 @@ document.addEventListener("DOMContentLoaded", () => {
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       function: (payload, reqId) => {
-        window.postMessage({ 
-          type: "DEEPL_TRANSLATE", 
-          payload: payload,
-          requestId: reqId 
-        }, "*");
+        window.postMessage(
+          {
+            type: "DEEPL_TRANSLATE",
+            payload: payload,
+            requestId: reqId,
+          },
+          "*",
+        );
       },
       args: [text, requestId],
     });
 
-    console.log(`📤 Sent translation request: ${requestId} (${text.length} chars)`);
+    console.log(
+      `📤 Sent translation request: ${requestId} (${text.length} chars)`,
+    );
 
     // Wait for the completion signal
     return await completionPromise;
@@ -200,15 +342,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Create progress bar
     createMainProgressBar();
-    
+
     // Calculate text stats for display
     const charCount = text.length;
-    const wordCount = text.split(/\s+/).filter(w => w).length;
-    
+    const wordCount = text.split(/\s+/).filter((w) => w).length;
+
     // Estimate processing time based on text length
     const estimatedSeconds = Math.max(5, Math.ceil(charCount / 200));
-    
-    updateMainProgressBar(10, "Sending to DeepL...", `${charCount.toLocaleString()} characters, ~${wordCount.toLocaleString()} words`);
+
+    updateMainProgressBar(
+      10,
+      "Sending to DeepL...",
+      `${charCount.toLocaleString()} characters, ~${wordCount.toLocaleString()} words`,
+    );
 
     // Simulate progress while waiting
     let currentProgress = 10;
@@ -217,20 +363,27 @@ document.addEventListener("DOMContentLoaded", () => {
         // Slow down as we get closer to completion
         const increment = Math.max(1, Math.floor((85 - currentProgress) / 10));
         currentProgress += increment;
-        updateMainProgressBar(currentProgress, "Translating...", `Estimated ~${Math.max(1, estimatedSeconds - Math.floor(currentProgress / 10))}s remaining`);
+        updateMainProgressBar(
+          currentProgress,
+          "Translating...",
+          `Estimated ~${Math.max(1, estimatedSeconds - Math.floor(currentProgress / 10))}s remaining`,
+        );
       }
     }, 1000);
 
     try {
       // Wait for actual completion signal
       const result = await sendTextToDeepLAndWait(text, 120000);
-      
+
       clearInterval(progressInterval);
-      
+
       if (result.success) {
-        updateMainProgressBar(100, "Translation complete!", 
-          `Original: ${result.originalLength?.toLocaleString() || charCount.toLocaleString()} chars → Translated: ${result.translatedLength?.toLocaleString() || '?'} chars`);
-        
+        updateMainProgressBar(
+          100,
+          "Translation complete!",
+          `Original: ${result.originalLength?.toLocaleString() || charCount.toLocaleString()} chars → Translated: ${result.translatedLength?.toLocaleString() || "?"} chars`,
+        );
+
         status.innerHTML = `
           <span class="text-success">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-check-circle-fill me-1" viewBox="0 0 16 16">
@@ -239,11 +392,11 @@ document.addEventListener("DOMContentLoaded", () => {
             Translation saved to history!
           </span>
         `;
-        
+
         // Clear input after successful translation
         inputText.value = "";
         chrome.storage.local.set({ lastInput: "" });
-        
+
         removeMainProgressBar(3000);
       } else {
         throw new Error(result.error || "Translation failed");
@@ -251,13 +404,13 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (error) {
       clearInterval(progressInterval);
       console.error("Translation error:", error);
-      
+
       // Update progress bar to show error
       const progressWrapper = document.getElementById("mainProgressWrapper");
       if (progressWrapper) {
         const progressBar = progressWrapper.querySelector(".progress-bar");
         const progressLabel = progressWrapper.querySelector(".progress-label");
-        
+
         progressBar.classList.remove("bg-primary", "progress-bar-animated");
         progressBar.classList.add("bg-danger");
         progressLabel.innerHTML = `
@@ -267,7 +420,7 @@ document.addEventListener("DOMContentLoaded", () => {
           Error or timeout
         `;
       }
-      
+
       status.innerHTML = `
         <span class="text-warning">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-exclamation-triangle me-1" viewBox="0 0 16 16">
@@ -277,7 +430,7 @@ document.addEventListener("DOMContentLoaded", () => {
           Text sent. Check DeepL for results (timeout waiting for confirmation).
         </span>
       `;
-      
+
       removeMainProgressBar(5000);
     }
 
@@ -313,9 +466,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (verlauf.length > 0) {
         const lastEntry = verlauf[verlauf.length - 1];
         inputText.value = lastEntry.translated;
-
         inputText.focus();
-        chrome.storage.local.set({ lastInput: inputText.value });
         status.innerText = "Last result restored for re-editing.";
         setTimeout(() => {
           status.innerText = "";
@@ -404,8 +555,13 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function loadHistory() {
+    // Reset selection state on each load
+    selectedIds = new Set();
+    currentVerlauf = [];
+
     chrome.storage.local.get({ verlauf: [] }, (result) => {
       const verlauf = result.verlauf;
+      currentVerlauf = verlauf;
 
       historyList.style.maxHeight = "500px";
       historyList.style.overflowY = "auto";
@@ -413,6 +569,7 @@ document.addEventListener("DOMContentLoaded", () => {
       historyList.className = "custom-scrollbar";
 
       historyList.innerHTML = "";
+      updateBulkBar();
 
       if (!verlauf.length) {
         historyList.innerHTML =
@@ -428,6 +585,9 @@ document.addEventListener("DOMContentLoaded", () => {
           item.className = "history-entry border-bottom pb-3 mb-3 p-2";
 
           item.innerHTML = `
+    <div class="d-flex align-items-start gap-2">
+    <input type="checkbox" class="history-select-cb form-check-input" style="width:1.1em;height:1.1em;cursor:pointer;flex-shrink:0;margin-top:5px;" aria-label="Select entry">
+    <div style="flex:1;min-width:0;">
     <small class="text-muted d-block mb-2">
       <svg xmlns="http://www.w3.org" width="12" height="12" fill="currentColor" class="bi bi-clock me-1" viewBox="0 0 16 16">
         <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71z"/>
@@ -498,6 +658,8 @@ document.addEventListener("DOMContentLoaded", () => {
           </button>
         </div>
       </div>
+    </div>
+    </div>
     </div>
 `;
 
@@ -586,6 +748,20 @@ document.addEventListener("DOMContentLoaded", () => {
               });
             }
           });
+
+          // Checkbox selection handler
+          item
+            .querySelector(".history-select-cb")
+            .addEventListener("change", function () {
+              if (this.checked) {
+                selectedIds.add(entry.id);
+                item.classList.add("selected");
+              } else {
+                selectedIds.delete(entry.id);
+                item.classList.remove("selected");
+              }
+              updateBulkBar();
+            });
 
           historyList.appendChild(item);
         });
