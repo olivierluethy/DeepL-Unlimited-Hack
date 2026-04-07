@@ -12,7 +12,6 @@
 
         <script src="js/jspdf.umd.min.js" defer></script>
         <script src="js/Sortable.min.js" defer></script>
-        <script src="js/pdf.min.js" defer></script>
 
         <style>
             body {
@@ -250,34 +249,6 @@
                 color: #6c757d;
                 font-style: italic;
             }
-
-            /* History multi-selection */
-            .history-entry.selected {
-                background-color: #e8f0fe;
-                outline: 2px solid #0d6efd;
-                outline-offset: -2px;
-                border-radius: 6px;
-            }
-            .history-select-cb {
-                width: 1.1em;
-                height: 1.1em;
-                cursor: pointer;
-                flex-shrink: 0;
-                accent-color: #0d6efd;
-                margin-top: 5px;
-                align-self: flex-start;
-            }
-            #historyBulkBar {
-                position: sticky;
-                bottom: 0;
-                z-index: 10;
-                background: #fff;
-                border-top: 2px solid #0d6efd;
-                padding: 7px 4px 5px;
-                margin-top: 6px;
-                border-radius: 0 0 4px 4px;
-                animation: slideIn 0.2s ease;
-            }
         </style>
     </head>
     <body>
@@ -339,12 +310,6 @@
             <li class="nav-item">
                 <a class="nav-link" id="history-tab" data-bs-toggle="tab" href="#history" role="tab"
                     ><i class="bi bi-clock-history"></i> History</a
-                >
-            </li>
-
-            <li class="nav-item">
-                <a class="nav-link" id="upload-tab" data-bs-toggle="tab" href="#upload" role="tab"
-                    ><i class="bi bi-cloud-upload"></i> Upload</a
                 >
             </li>
         </ul>
@@ -532,53 +497,15 @@ data-bs-title="Enter or paste text and click 'Send to DeepL' to start the transl
 
             <!-- History Page -->
             <div class="tab-pane fade" id="history" role="tabpanel">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h5 class="mb-0">History of conversions
-                        <i class="bi bi-info-circle" style="cursor:help" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="View, copy, or delete previous translations."></i>
-                    </h5>
-                    <button id="selectAllHistoryBtn" class="btn btn-link btn-sm p-0 d-none" style="font-size:0.8rem;color:#6c757d;text-decoration:none;">Select all</button>
-                </div>
-                <div id="historyBulkBar" class="d-none">
-                    <div class="d-flex align-items-center gap-2 flex-wrap">
-                        <span id="selectedCount" class="small text-primary fw-semibold me-auto"></span>
-                        <button id="bulkCopyBtn" class="btn btn-sm btn-outline-success d-flex align-items-center gap-1">
-                            <i class="bi bi-clipboard"></i> Copy
-                        </button>
-                        <div class="dropdown">
-                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle d-flex align-items-center gap-1" type="button" data-bs-toggle="dropdown">
-                                <i class="bi bi-download"></i> Export
-                            </button>
-                            <ul class="dropdown-menu shadow-sm" style="font-size:0.8rem;">
-                                <li><a class="dropdown-item" href="#" id="bulkExportTxt"><i class="bi bi-file-text me-1"></i>TXT</a></li>
-                                <li><a class="dropdown-item" href="#" id="bulkExportWord"><i class="bi bi-file-word me-1"></i>Word (.docx)</a></li>
-                            </ul>
-                        </div>
-                        <button id="bulkDeleteBtn" class="btn btn-sm btn-outline-danger d-flex align-items-center gap-1">
-                            <i class="bi bi-trash"></i> Del
-                        </button>
-                    </div>
-                </div>
+                <h5>History of conversions <i
+                            class="bi bi-info-circle"
+                            style="cursor: help"
+                            data-bs-toggle="tooltip"
+                            data-bs-placement="top"
+data-bs-title="View, copy, or delete previous translations."                        >
+                        </i></h5>
                 <div id="historyList"></div>
             </div>
-
-             <!-- Upload Page -->
-           <div class="tab-pane fade" id="upload" role="tabpanel">
-
-<div class="d-flex justify-content-between align-items-center mb-3">
-  <h5 class="mb-0">Upload Document</h5>
-  <button id="openUploadPageBtn" class="btn btn-sm view-page-btn">
-    <i class="bi bi-box-arrow-up-right me-1"></i> Open Full Page
-  </button>
-</div>
-
-<div class="mb-3">
-<input class="form-control" type="file" id="fileUpload" accept=".docx,.pdf">
-<div class="form-text"><i class="bi bi-info-circle me-1"></i>Supported: Word (.docx) and PDF (.pdf)</div>
-</div>
-
-<div id="uploadList" class="list-group"></div>
-
-</div>
 
             <!-- Loop Management Page -->
             <div class="tab-pane fade" id="loop" role="tabpanel">
@@ -611,10 +538,8 @@ data-bs-title="Enter or paste text and click 'Send to DeepL' to start the transl
         </div>
 
         <!-- Bootstrap JavaScript -->
-        <script src="js/mammoth.browser.js" defer></script>
         <script src="js/bootstrap.bundle.min.js"></script>
         <script src="popup.js" defer></script>
-        <script src="upload.js" defer></script>
         <script src="loop.js" defer></script>
     </body>
 </html>
