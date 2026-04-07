@@ -319,9 +319,7 @@ document.addEventListener("DOMContentLoaded", () => {
       if (verlauf.length > 0) {
         const lastEntry = verlauf[verlauf.length - 1];
         inputText.value = lastEntry.translated;
-
         inputText.focus();
-        chrome.storage.local.set({ lastInput: inputText.value });
         status.innerText = "Last result restored for re-editing.";
         setTimeout(() => {
           status.innerText = "";
