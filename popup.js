@@ -120,25 +120,9 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     const selected = currentVerlauf.filter((e) => selectedIds.has(e.id));
     if (!selected.length) return;
-    const header =
-      "<html xmlns:o='urn:schemas-microsoft-com:office:office' " +
-      "xmlns:w='urn:schemas-microsoft-com:office:word' " +
-      "xmlns='http://www.w3.org'><head><meta charset='utf-8'></head><body>";
-    const footer = "</body></html>";
-    const body = selected
-      .map(
-        (e, i) =>
-          `<h3 style="color:#6c757d;font-family:sans-serif;">[${i + 1}] ${new Date(e.timestamp).toLocaleString()}</h3>` +
-          `<h4 style="color:#6c757d;font-family:sans-serif;">Original:</h4>` +
-          `<p style="font-family:Arial;white-space:pre-wrap;">${e.original.replace(/\n/g, "<br>")}</p>` +
-          `<h4 style="color:#0d6efd;font-family:sans-serif;">Converted:</h4>` +
-          `<p style="font-family:Arial;white-space:pre-wrap;">${e.translated.replace(/\n/g, "<br>")}</p><hr>`
-      )
-      .join("");
-    const content = header + body + footer;
-    const blob = new Blob([content], {
-      type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    });
+    // Build a real OOXML .docx with one numbered heading per entry.
+    // Only translated text is exported (original is already stored locally).
+    const blob = buildMultiDocxBlob(selected);
     const url = URL.createObjectURL(blob);
     chrome.downloads.download({ url, filename: `translations_${Date.now()}.docx`, saveAs: true });
   });
@@ -750,25 +734,12 @@ document.addEventListener("DOMContentLoaded", () => {
         filename = `translation_${entryId}.csv`;
         mimeType = "text/csv";
       } else if (format === "word") {
-        const header =
-          "<html xmlns:o='urn:schemas-microsoft-com:office:office' " +
-          "xmlns:w='urn:schemas-microsoft-com:office:word' " +
-          "xmlns='http://www.w3.org'>" +
-          "<head><meta charset='utf-8'></head><body>";
-        const footer = "</body></html>";
-
-        const body = `
-          <h3 style="color: #6c757d; font-family: sans-serif;">Original:</h3>
-          <p style="font-family: Arial; white-space: pre-wrap;">${entry.original.replace(/\n/g, "<br>")}</p>
-          <hr>
-          <h3 style="color: #0d6efd; font-family: sans-serif;">Converted:</h3>
-          <p style="font-family: Arial; white-space: pre-wrap;">${entry.translated.replace(/\n/g, "<br>")}</p>
-        `;
-
-        content = header + body + footer;
-        filename = `translation_${entryId}.docx`;
-        mimeType =
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        // Build a real OOXML .docx (ZIP + XML) — compatible with Microsoft Word.
+        // Only the translated text is exported (original is already stored locally).
+        const blob = buildDocxBlob(entry.translated);
+        const url = URL.createObjectURL(blob);
+        chrome.downloads.download({ url, filename: `translation_${entryId}.docx`, saveAs: true });
+        return;
       } else if (format === "pdf") {
         const { jsPDF } = window.jspdf;
 
