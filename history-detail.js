@@ -299,25 +299,16 @@ document.addEventListener("DOMContentLoaded", () => {
         mimeType = "text/csv";
         break;
         
-      case "word":
-        const header = "<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org'><head><meta charset='utf-8'><style>body{font-family:Arial,sans-serif;} h2{color:#6c757d;} .converted h2{color:#0d6efd;} pre{background:#f8f9fa;padding:15px;border-radius:5px;white-space:pre-wrap;}</style></head><body>";
-        const footer = "</body></html>";
-        const body = `
-          <h1>DeepL Pro Unlimited - Translation</h1>
-          <p><small>Created: ${formatDate(entry.timestamp)}</small></p>
-          <hr>
-          <h2>Original Text</h2>
-          <pre>${entry.original.replace(/\n/g, "<br>")}</pre>
-          <hr>
-          <div class="converted">
-            <h2>Converted Text</h2>
-            <pre>${entry.translated.replace(/\n/g, "<br>")}</pre>
-          </div>
-        `;
-        content = header + body + footer;
-        filename = `translation_${entry.id}.docx`;
-        mimeType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-        break;
+      case "word": {
+        // Build a real OOXML .docx (ZIP + XML) — compatible with Microsoft Word.
+        // Only the translated text is exported (original is already stored locally).
+        const blob = buildDocxBlob(entry.translated);
+        const url = URL.createObjectURL(blob);
+        chrome.downloads.download({ url, filename: `translation_${entry.id}.docx`, saveAs: true }, () => {
+          showToast("Downloaded as DOCX", "success");
+        });
+        return;
+      }
         
       case "pdf":
         // PDF requires jsPDF library - check if available
