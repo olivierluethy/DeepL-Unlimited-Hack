@@ -16,17 +16,15 @@ document.addEventListener("DOMContentLoaded", () => {
   let selectedIds = new Set();
   let currentVerlauf = [];
 
-  chrome.storage.local.get({documents: []}, function(data){
-
-        data.documents.forEach(renderUploadEntry);
-
-    });
+  chrome.storage.local.get({ documents: [] }, function (data) {
+    data.documents.forEach(renderUploadEntry);
+  });
 
   // ✅ Listen for completion messages from content script
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     if (message.type === "DEEPL_TRANSLATION_COMPLETE") {
       console.log("📨 Received completion signal:", message.requestId);
-      
+
       const resolver = pendingTranslations.get(message.requestId);
       if (resolver) {
         resolver(message);
@@ -35,8 +33,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   });
 
-  const tooltipTriggerList = document.querySelectorAll('[data-bs-toggle="tooltip"]');
-  tooltipTriggerList.forEach(el => new bootstrap.Tooltip(el));
+  const tooltipTriggerList = document.querySelectorAll(
+    '[data-bs-toggle="tooltip"]',
+  );
+  tooltipTriggerList.forEach((el) => new bootstrap.Tooltip(el));
 
   // Initialisiere Bootstrap Tabs
   const tabList = document.querySelectorAll('#appTabs a[data-bs-toggle="tab"]');
@@ -68,24 +68,35 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (total > 0) {
       selectAllBtn.classList.remove("d-none");
-      selectAllBtn.textContent = count === total ? "Deselect all" : "Select all";
+      selectAllBtn.textContent =
+        count === total ? "Deselect all" : "Select all";
     } else {
       selectAllBtn.classList.add("d-none");
     }
   }
 
-  document.getElementById("selectAllHistoryBtn").addEventListener("click", () => {
-    if (selectedIds.size === currentVerlauf.length) {
-      selectedIds.clear();
-      document.querySelectorAll(".history-select-cb").forEach((cb) => { cb.checked = false; });
-      document.querySelectorAll(".history-entry").forEach((e) => e.classList.remove("selected"));
-    } else {
-      currentVerlauf.forEach((e) => selectedIds.add(e.id));
-      document.querySelectorAll(".history-select-cb").forEach((cb) => { cb.checked = true; });
-      document.querySelectorAll(".history-entry").forEach((e) => e.classList.add("selected"));
-    }
-    updateBulkBar();
-  });
+  document
+    .getElementById("selectAllHistoryBtn")
+    .addEventListener("click", () => {
+      if (selectedIds.size === currentVerlauf.length) {
+        selectedIds.clear();
+        document.querySelectorAll(".history-select-cb").forEach((cb) => {
+          cb.checked = false;
+        });
+        document
+          .querySelectorAll(".history-entry")
+          .forEach((e) => e.classList.remove("selected"));
+      } else {
+        currentVerlauf.forEach((e) => selectedIds.add(e.id));
+        document.querySelectorAll(".history-select-cb").forEach((cb) => {
+          cb.checked = true;
+        });
+        document
+          .querySelectorAll(".history-entry")
+          .forEach((e) => e.classList.add("selected"));
+      }
+      updateBulkBar();
+    });
 
   document.getElementById("bulkCopyBtn").addEventListener("click", () => {
     const selected = currentVerlauf.filter((e) => selectedIds.has(e.id));
@@ -107,13 +118,18 @@ document.addEventListener("DOMContentLoaded", () => {
     const selected = currentVerlauf.filter((e) => selectedIds.has(e.id));
     if (!selected.length) return;
     const content = selected
-      .map((e, i) =>
-        `[${i + 1}] ${new Date(e.timestamp).toLocaleString()}\n\nOriginal:\n${e.original}\n\nConverted:\n${e.translated}`
+      .map(
+        (e, i) =>
+          `[${i + 1}] ${new Date(e.timestamp).toLocaleString()}\n\nOriginal:\n${e.original}\n\nConverted:\n${e.translated}`,
       )
       .join("\n\n" + "=".repeat(40) + "\n\n");
     const blob = new Blob([content], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
-    chrome.downloads.download({ url, filename: `translations_${Date.now()}.txt`, saveAs: true });
+    chrome.downloads.download({
+      url,
+      filename: `translations_${Date.now()}.txt`,
+      saveAs: true,
+    });
   });
 
   document.getElementById("bulkExportWord").addEventListener("click", (e) => {
@@ -124,13 +140,19 @@ document.addEventListener("DOMContentLoaded", () => {
     // Only translated text is exported (original is already stored locally).
     const blob = buildMultiDocxBlob(selected);
     const url = URL.createObjectURL(blob);
-    chrome.downloads.download({ url, filename: `translations_${Date.now()}.docx`, saveAs: true });
+    chrome.downloads.download({
+      url,
+      filename: `translations_${Date.now()}.docx`,
+      saveAs: true,
+    });
   });
 
   document.getElementById("bulkDeleteBtn").addEventListener("click", () => {
     const count = selectedIds.size;
     if (!count) return;
-    if (confirm(`Delete ${count} selected ${count === 1 ? "entry" : "entries"}?`)) {
+    if (
+      confirm(`Delete ${count} selected ${count === 1 ? "entry" : "entries"}?`)
+    ) {
       chrome.storage.local.get({ verlauf: [] }, (result) => {
         const filtered = result.verlauf.filter((e) => !selectedIds.has(e.id));
         chrome.storage.local.set({ verlauf: filtered }, () => loadHistory());
@@ -178,10 +200,10 @@ document.addEventListener("DOMContentLoaded", () => {
       </div>
       <small class="text-muted d-block mt-1 progress-details"></small>
     `;
-    
+
     // Insert after the status element
     status.after(progressWrapper);
-    
+
     return progressWrapper;
   }
 
@@ -197,7 +219,7 @@ document.addEventListener("DOMContentLoaded", () => {
     progressBar.style.width = `${percent}%`;
     progressBar.setAttribute("aria-valuenow", percent);
     progressPercent.textContent = `${percent}%`;
-    
+
     if (percent === 100) {
       progressBar.classList.remove("bg-primary", "progress-bar-animated");
       progressBar.classList.add("bg-success");
@@ -213,7 +235,7 @@ document.addEventListener("DOMContentLoaded", () => {
         ${label}
       `;
     }
-    
+
     progressDetails.textContent = details;
   }
 
@@ -233,7 +255,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!text.trim()) return { success: true };
 
     const requestId = `req-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
+
     const [tab] = await chrome.tabs.query({
       active: true,
       currentWindow: true,
@@ -242,7 +264,7 @@ document.addEventListener("DOMContentLoaded", () => {
     // Create a promise that will be resolved when we get the completion signal
     const completionPromise = new Promise((resolve, reject) => {
       pendingTranslations.set(requestId, resolve);
-      
+
       // Timeout fallback
       setTimeout(() => {
         if (pendingTranslations.has(requestId)) {
@@ -256,16 +278,21 @@ document.addEventListener("DOMContentLoaded", () => {
     await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       function: (payload, reqId) => {
-        window.postMessage({ 
-          type: "DEEPL_TRANSLATE", 
-          payload: payload,
-          requestId: reqId 
-        }, "*");
+        window.postMessage(
+          {
+            type: "DEEPL_TRANSLATE",
+            payload: payload,
+            requestId: reqId,
+          },
+          "*",
+        );
       },
       args: [text, requestId],
     });
 
-    console.log(`📤 Sent translation request: ${requestId} (${text.length} chars)`);
+    console.log(
+      `📤 Sent translation request: ${requestId} (${text.length} chars)`,
+    );
 
     // Wait for the completion signal
     return await completionPromise;
@@ -299,15 +326,19 @@ document.addEventListener("DOMContentLoaded", () => {
 
     // Create progress bar
     createMainProgressBar();
-    
+
     // Calculate text stats for display
     const charCount = text.length;
-    const wordCount = text.split(/\s+/).filter(w => w).length;
-    
+    const wordCount = text.split(/\s+/).filter((w) => w).length;
+
     // Estimate processing time based on text length
     const estimatedSeconds = Math.max(5, Math.ceil(charCount / 200));
-    
-    updateMainProgressBar(10, "Sending to DeepL...", `${charCount.toLocaleString()} characters, ~${wordCount.toLocaleString()} words`);
+
+    updateMainProgressBar(
+      10,
+      "Sending to DeepL...",
+      `${charCount.toLocaleString()} characters, ~${wordCount.toLocaleString()} words`,
+    );
 
     // Simulate progress while waiting
     let currentProgress = 10;
@@ -316,20 +347,27 @@ document.addEventListener("DOMContentLoaded", () => {
         // Slow down as we get closer to completion
         const increment = Math.max(1, Math.floor((85 - currentProgress) / 10));
         currentProgress += increment;
-        updateMainProgressBar(currentProgress, "Translating...", `Estimated ~${Math.max(1, estimatedSeconds - Math.floor(currentProgress / 10))}s remaining`);
+        updateMainProgressBar(
+          currentProgress,
+          "Translating...",
+          `Estimated ~${Math.max(1, estimatedSeconds - Math.floor(currentProgress / 10))}s remaining`,
+        );
       }
     }, 1000);
 
     try {
       // Wait for actual completion signal
       const result = await sendTextToDeepLAndWait(text, 120000);
-      
+
       clearInterval(progressInterval);
-      
+
       if (result.success) {
-        updateMainProgressBar(100, "Translation complete!", 
-          `Original: ${result.originalLength?.toLocaleString() || charCount.toLocaleString()} chars → Translated: ${result.translatedLength?.toLocaleString() || '?'} chars`);
-        
+        updateMainProgressBar(
+          100,
+          "Translation complete!",
+          `Original: ${result.originalLength?.toLocaleString() || charCount.toLocaleString()} chars → Translated: ${result.translatedLength?.toLocaleString() || "?"} chars`,
+        );
+
         status.innerHTML = `
           <span class="text-success">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-check-circle-fill me-1" viewBox="0 0 16 16">
@@ -338,11 +376,11 @@ document.addEventListener("DOMContentLoaded", () => {
             Translation saved to history!
           </span>
         `;
-        
+
         // Clear input after successful translation
         inputText.value = "";
         chrome.storage.local.set({ lastInput: "" });
-        
+
         removeMainProgressBar(3000);
       } else {
         throw new Error(result.error || "Translation failed");
@@ -350,13 +388,13 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (error) {
       clearInterval(progressInterval);
       console.error("Translation error:", error);
-      
+
       // Update progress bar to show error
       const progressWrapper = document.getElementById("mainProgressWrapper");
       if (progressWrapper) {
         const progressBar = progressWrapper.querySelector(".progress-bar");
         const progressLabel = progressWrapper.querySelector(".progress-label");
-        
+
         progressBar.classList.remove("bg-primary", "progress-bar-animated");
         progressBar.classList.add("bg-danger");
         progressLabel.innerHTML = `
@@ -366,7 +404,7 @@ document.addEventListener("DOMContentLoaded", () => {
           Error or timeout
         `;
       }
-      
+
       status.innerHTML = `
         <span class="text-warning">
           <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" class="bi bi-exclamation-triangle me-1" viewBox="0 0 16 16">
@@ -376,7 +414,7 @@ document.addEventListener("DOMContentLoaded", () => {
           Text sent. Check DeepL for results (timeout waiting for confirmation).
         </span>
       `;
-      
+
       removeMainProgressBar(5000);
     }
 
@@ -411,8 +449,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (verlauf.length > 0) {
         const lastEntry = verlauf[verlauf.length - 1];
-        inputText.value = lastEntry.translated;
+        const textToRestore = lastEntry.translated;
+
+        // Wert ins Feld schreiben
+        inputText.value = textToRestore;
         inputText.focus();
+
+        // JETZT AUCH SPEICHERN (wie beim Paste Button)
+        chrome.storage.local.set({ lastInput: textToRestore });
+
         status.innerText = "Last result restored for re-editing.";
         setTimeout(() => {
           status.innerText = "";
@@ -433,7 +478,11 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/\s+/g, " ")
       .trim();
 
+    // Wert im UI setzen
     inputText.value = fixedText;
+
+    // JETZT AUCH SPEICHERN (wie beim Paste & Swap Button)
+    chrome.storage.local.set({ lastInput: fixedText });
 
     const btn = document.getElementById("magicFixBtn");
     btn.classList.replace("btn-outline-info", "btn-info");
@@ -696,16 +745,18 @@ document.addEventListener("DOMContentLoaded", () => {
           });
 
           // Checkbox selection handler
-          item.querySelector(".history-select-cb").addEventListener("change", function () {
-            if (this.checked) {
-              selectedIds.add(entry.id);
-              item.classList.add("selected");
-            } else {
-              selectedIds.delete(entry.id);
-              item.classList.remove("selected");
-            }
-            updateBulkBar();
-          });
+          item
+            .querySelector(".history-select-cb")
+            .addEventListener("change", function () {
+              if (this.checked) {
+                selectedIds.add(entry.id);
+                item.classList.add("selected");
+              } else {
+                selectedIds.delete(entry.id);
+                item.classList.remove("selected");
+              }
+              updateBulkBar();
+            });
 
           historyList.appendChild(item);
         });
@@ -738,7 +789,11 @@ document.addEventListener("DOMContentLoaded", () => {
         // Only the translated text is exported (original is already stored locally).
         const blob = buildDocxBlob(entry.translated);
         const url = URL.createObjectURL(blob);
-        chrome.downloads.download({ url, filename: `translation_${entryId}.docx`, saveAs: true });
+        chrome.downloads.download({
+          url,
+          filename: `translation_${entryId}.docx`,
+          saveAs: true,
+        });
         return;
       } else if (format === "pdf") {
         const { jsPDF } = window.jspdf;
