@@ -122,22 +122,193 @@ function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Splits text into translation-ready chunks that respect sentence boundaries.
+ *
+ * Priority order for split points:
+ *   1. End of complete sentences (., !, ?)
+ *   2. Clause boundaries (; ,) — only when a single sentence exceeds maxLength
+ *   3. Word boundaries — last resort only
+ *
+ * @param {string} text      Full input text
+ * @param {number} maxLength Maximum characters per chunk
+ * @returns {string[]}       Non-empty chunks, each within maxLength
+ */
 function splitText(text, maxLength) {
-  const parts = [];
+  if (!text || !text.trim()) return [];
+  if (text.length <= maxLength) return [text];
+
+  const sentences = splitIntoSentences(text);
+  const chunks = [];
   let current = "";
 
-  for (let word of text.split(" ")) {
-    if ((current + " " + word).length > maxLength) {
-      parts.push(current);
-      current = word;
+  for (const sentence of sentences) {
+    if (!sentence) continue;
+
+    if (sentence.length > maxLength) {
+      // This single sentence is longer than the limit — must split it
+      if (current) { chunks.push(current); current = ""; }
+      const parts = splitLongSentence(sentence, maxLength);
+      for (let k = 0; k < parts.length - 1; k++) chunks.push(parts[k]);
+      current = parts[parts.length - 1] ?? "";
+      continue;
+    }
+
+    const withNext = current ? current + " " + sentence : sentence;
+    if (withNext.length > maxLength) {
+      // Adding this sentence would exceed the limit — flush and start fresh
+      chunks.push(current);
+      current = sentence;
     } else {
-      current += (current ? " " : "") + word;
+      current = withNext;
     }
   }
 
-  if (current) parts.push(current);
-  return parts;
+  if (current.trim()) chunks.push(current);
+  return chunks;
 }
+
+/**
+ * Heuristically splits text into individual sentences.
+ *
+ * Rules for detecting a sentence boundary at a punctuation character (.!?):
+ *   - The punctuation must be followed by whitespace or end of string.
+ *   - For a lone "." only: skip if preceded by a digit (decimal / list number)
+ *     or by a single letter / known abbreviation (Dr., Mr., etc., bzw., …).
+ *
+ * Multi-paragraph text is split on blank lines first so each paragraph is
+ * processed independently.
+ */
+function splitIntoSentences(text) {
+  // Paragraph breaks are hard boundaries regardless of punctuation
+  const paragraphs = text.split(/\n{2,}/);
+  const sentences = [];
+  for (const para of paragraphs) {
+    const trimmed = para.trim();
+    if (trimmed) sentences.push(..._sentencesFromParagraph(trimmed));
+  }
+  return sentences;
+}
+
+// Abbreviations whose trailing "." must not be treated as a sentence end
+const _ABBREVS = new Set([
+  // English
+  'dr','mr','mrs','ms','prof','jr','sr','vs','etc','ca','approx',
+  'st','ave','blvd','dept','est','vol','pp','ed','no','fig','ref',
+  'jan','feb','mar','apr','jun','jul','aug','sep','oct','nov','dec',
+  // German
+  'bzw','usw','ggf','inkl','exkl','bzgl','zzgl','zb','dh','ua','oa',
+  'str','tel','nr','mfg','sa','sg','rd','vgl','abs','abb','sog','ca',
+]);
+
+function _sentencesFromParagraph(text) {
+  const sentences = [];
+  let start = 0;
+
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c !== '.' && c !== '!' && c !== '?') continue;
+
+    // Absorb consecutive sentence-ending punctuation ("...", "!?", "!!")
+    let punctEnd = i;
+    while (punctEnd + 1 < text.length && '.!?'.includes(text[punctEnd + 1])) {
+      punctEnd++;
+    }
+
+    // Absorb closing quotes / brackets attached to the sentence ('."', '!")')
+    let afterPunct = punctEnd + 1;
+    while (afterPunct < text.length && `"')]}»`.includes(text[afterPunct])) {
+      afterPunct++;
+    }
+
+    // Boundary requires whitespace or end-of-string after the punctuation cluster
+    if (afterPunct < text.length && !/\s/.test(text[afterPunct])) {
+      i = punctEnd;
+      continue;
+    }
+
+    // For a lone "." (not part of "..." or "?!"), apply abbreviation heuristics
+    if (c === '.' && i === punctEnd) {
+      // Digit before dot → decimal number ("3.14") or ordered list ("1.")
+      if (i > 0 && /\d/.test(text[i - 1])) {
+        i = punctEnd;
+        continue;
+      }
+
+      // Extract the word token immediately before the dot
+      let ws = i - 1;
+      while (ws >= start && !/[\s.!?]/.test(text[ws])) ws--;
+      const wordBefore = text.slice(ws + 1, i).toLowerCase();
+
+      // Single-letter initial (e.g., "J.") or known abbreviation → not a boundary
+      if (wordBefore.length === 1 || _ABBREVS.has(wordBefore)) {
+        i = punctEnd;
+        continue;
+      }
+    }
+
+    // Valid sentence boundary — record the sentence
+    const sentence = text.slice(start, afterPunct).trim();
+    if (sentence) sentences.push(sentence);
+
+    // Advance past trailing whitespace
+    let next = afterPunct;
+    while (next < text.length && /\s/.test(text[next])) next++;
+    start = next;
+    i = next - 1; // compensate for loop's i++
+  }
+
+  // Any remaining text after the last sentence-ending punctuation
+  const tail = text.slice(start).trim();
+  if (tail) sentences.push(tail);
+
+  return sentences;
+}
+
+/**
+ * Splits a single sentence that exceeds maxLength at natural sub-boundaries.
+ * Tries semicolons first, then commas, then words (last resort).
+ */
+function splitLongSentence(sentence, maxLength) {
+  // Split after semicolons (keep the semicolon with the preceding clause)
+  const bySemicolon = sentence.split(/(?<=;)\s*/);
+  if (bySemicolon.length > 1) {
+    const packed = _packTokens(bySemicolon, " ", maxLength);
+    if (packed.every(c => c.length <= maxLength)) return packed;
+  }
+
+  // Split after commas (keep the comma with the preceding clause)
+  const byComma = sentence.split(/(?<=,)\s*/);
+  if (byComma.length > 1) {
+    const packed = _packTokens(byComma, " ", maxLength);
+    if (packed.every(c => c.length <= maxLength)) return packed;
+  }
+
+  // Last resort: word-by-word (mirrors the original algorithm)
+  return _packTokens(sentence.split(" "), " ", maxLength);
+}
+
+/**
+ * Greedily packs an array of tokens into strings, each ≤ maxLength.
+ * Tokens are joined with `glue`.
+ */
+function _packTokens(tokens, glue, maxLength) {
+  const chunks = [];
+  let current = "";
+  for (const token of tokens) {
+    if (!token) continue;
+    const candidate = current ? current + glue + token : token;
+    if (candidate.length > maxLength) {
+      if (current) chunks.push(current);
+      current = token;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
 
 // New function to completely clear the input field
 async function clearInputField() {
