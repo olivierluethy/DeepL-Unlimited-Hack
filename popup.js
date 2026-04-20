@@ -866,6 +866,10 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
+document.getElementById("openFullPageBtn").addEventListener("click", () => {
+  chrome.tabs.create({ url: chrome.runtime.getURL("fullpage.html") });
+});
+
 document.getElementById("bugBtn").addEventListener("click", () => {
   window.open("https://forms.gle/7LNwEpVCbXwunT6s8");
 });

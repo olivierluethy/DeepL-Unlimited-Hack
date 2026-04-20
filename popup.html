@@ -343,8 +343,8 @@
                 >
             </li>
             <li class="nav-item">
-                <a class="nav-link" id="upload-tab" data-bs-toggle="tab" href="#upload" role="tab"
-                    ><i class="bi bi-cloud-upload"></i> Upload</a
+                <a class="nav-link" id="pdf-tab" data-bs-toggle="tab" href="#pdf" role="tab"
+                    ><i class="bi bi-file-pdf"></i> PDF</a
                 >
             </li>
         </ul>
@@ -592,23 +592,19 @@
                 <div id="historyList"></div>
             </div>
 
-            <!-- Upload Page -->
-            <div class="tab-pane fade" id="upload" role="tabpanel">
-                <div class="d-flex justify-content-between align-items-center mb-3">
-                    <h5 class="mb-0">Upload Document</h5>
-                    <button id="openUploadPageBtn" class="btn btn-sm view-page-btn">
-                        <i class="bi bi-box-arrow-up-right me-1"></i> Open Full Page
+            <!-- PDF Translation Page -->
+            <div class="tab-pane fade" id="pdf" role="tabpanel">
+                <div class="text-center py-4 px-2">
+                    <i class="bi bi-file-pdf-fill text-danger" style="font-size:3rem;"></i>
+                    <h5 class="mt-3 fw-semibold">PDF Translation</h5>
+                    <p class="text-muted small mb-4">
+                        Upload a PDF, translate it via DeepL, and download the translated version.<br>
+                        Opens in a dedicated full-page view.
+                    </p>
+                    <button id="openFullPageBtn" class="btn btn-primary view-page-btn">
+                        <i class="bi bi-box-arrow-up-right me-2"></i>Open Full Page
                     </button>
                 </div>
-
-                <div class="mb-3">
-                    <input class="form-control" type="file" id="fileUpload" accept=".pdf" />
-                    <div class="form-text">
-                        <i class="bi bi-info-circle me-1"></i>PDF (.pdf)
-                    </div>
-                </div>
-
-                <div id="uploadList" class="list-group"></div>
             </div>
 
             <!-- Loop Management Page -->
@@ -645,6 +641,5 @@
         <script src="js/bootstrap.bundle.min.js"></script>
         <script src="popup.js" defer></script>
         <script src="loop.js" defer></script>
-        <script src="upload.js" defer></script>
     </body>
 </html>
