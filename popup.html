@@ -13,7 +13,7 @@
         <script src="js/jspdf.umd.min.js" defer></script>
         <script src="js/Sortable.min.js" defer></script>
         <script src="js/pdf.min.js" defer></script>
-         <script src="js/docx-utils.js" defer></script>
+        <script src="js/docx-utils.js" defer></script>
 
         <style>
             body {
@@ -342,21 +342,29 @@
                     ><i class="bi bi-clock-history"></i> History</a
                 >
             </li>
+            <li class="nav-item">
+                <a class="nav-link" id="upload-tab" data-bs-toggle="tab" href="#upload" role="tab"
+                    ><i class="bi bi-cloud-upload"></i> Upload</a
+                >
+            </li>
         </ul>
 
         <!-- Tab Content -->
         <div class="tab-content">
             <!-- Main Page -->
-    
+
             <div class="tab-pane fade show active" id="main" role="tabpanel">
                 <div class="mb-3">
                     <h5 for="inputText" class="form-label">
-    Enter text 
-    <i class="bi bi-info-circle"
-       data-bs-toggle="tooltip"
-data-bs-title="Enter or paste text and click 'Send to DeepL' to start the translation."       style="cursor: help">
-    </i>
-</h5>
+                        Enter text
+                        <i
+                            class="bi bi-info-circle"
+                            data-bs-toggle="tooltip"
+                            data-bs-title="Enter or paste text and click 'Send to DeepL' to start the translation."
+                            style="cursor: help"
+                        >
+                        </i>
+                    </h5>
                     <textarea
                         class="form-control"
                         id="inputText"
@@ -528,10 +536,23 @@ data-bs-title="Enter or paste text and click 'Send to DeepL' to start the transl
             <!-- History Page -->
             <div class="tab-pane fade" id="history" role="tabpanel">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                    <h5 class="mb-0">History of conversions
-                        <i class="bi bi-info-circle" style="cursor:help" data-bs-toggle="tooltip" data-bs-placement="top" data-bs-title="View, copy, or delete previous translations."></i>
+                    <h5 class="mb-0">
+                        History of conversions
+                        <i
+                            class="bi bi-info-circle"
+                            style="cursor: help"
+                            data-bs-toggle="tooltip"
+                            data-bs-placement="top"
+                            data-bs-title="View, copy, or delete previous translations."
+                        ></i>
                     </h5>
-                    <button id="selectAllHistoryBtn" class="btn btn-link btn-sm p-0 d-none" style="font-size:0.8rem;color:#6c757d;text-decoration:none;">Select all</button>
+                    <button
+                        id="selectAllHistoryBtn"
+                        class="btn btn-link btn-sm p-0 d-none"
+                        style="font-size: 0.8rem; color: #6c757d; text-decoration: none"
+                    >
+                        Select all
+                    </button>
                 </div>
                 <div id="historyBulkBar" class="d-none">
                     <div class="d-flex align-items-center gap-2 flex-wrap">
@@ -540,20 +561,54 @@ data-bs-title="Enter or paste text and click 'Send to DeepL' to start the transl
                             <i class="bi bi-clipboard"></i> Copy
                         </button>
                         <div class="dropdown">
-                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle d-flex align-items-center gap-1" type="button" data-bs-toggle="dropdown">
+                            <button
+                                class="btn btn-sm btn-outline-secondary dropdown-toggle d-flex align-items-center gap-1"
+                                type="button"
+                                data-bs-toggle="dropdown"
+                            >
                                 <i class="bi bi-download"></i> Export
                             </button>
-                            <ul class="dropdown-menu shadow-sm" style="font-size:0.8rem;">
-                                <li><a class="dropdown-item" href="#" id="bulkExportTxt"><i class="bi bi-file-text me-1"></i>TXT</a></li>
-                                <li><a class="dropdown-item" href="#" id="bulkExportWord"><i class="bi bi-file-word me-1"></i>Word (.docx)</a></li>
+                            <ul class="dropdown-menu shadow-sm" style="font-size: 0.8rem">
+                                <li>
+                                    <a class="dropdown-item" href="#" id="bulkExportTxt"
+                                        ><i class="bi bi-file-text me-1"></i>TXT</a
+                                    >
+                                </li>
+                                <li>
+                                    <a class="dropdown-item" href="#" id="bulkExportWord"
+                                        ><i class="bi bi-file-word me-1"></i>Word (.docx)</a
+                                    >
+                                </li>
                             </ul>
                         </div>
-                        <button id="bulkDeleteBtn" class="btn btn-sm btn-outline-danger d-flex align-items-center gap-1">
+                        <button
+                            id="bulkDeleteBtn"
+                            class="btn btn-sm btn-outline-danger d-flex align-items-center gap-1"
+                        >
                             <i class="bi bi-trash"></i> Del
                         </button>
                     </div>
                 </div>
                 <div id="historyList"></div>
+            </div>
+
+            <!-- Upload Page -->
+            <div class="tab-pane fade" id="upload" role="tabpanel">
+                <div class="d-flex justify-content-between align-items-center mb-3">
+                    <h5 class="mb-0">Upload Document</h5>
+                    <button id="openUploadPageBtn" class="btn btn-sm view-page-btn">
+                        <i class="bi bi-box-arrow-up-right me-1"></i> Open Full Page
+                    </button>
+                </div>
+
+                <div class="mb-3">
+                    <input class="form-control" type="file" id="fileUpload" accept=".pdf" />
+                    <div class="form-text">
+                        <i class="bi bi-info-circle me-1"></i>PDF (.pdf)
+                    </div>
+                </div>
+
+                <div id="uploadList" class="list-group"></div>
             </div>
 
             <!-- Loop Management Page -->
@@ -590,5 +645,6 @@ data-bs-title="Enter or paste text and click 'Send to DeepL' to start the transl
         <script src="js/bootstrap.bundle.min.js"></script>
         <script src="popup.js" defer></script>
         <script src="loop.js" defer></script>
+        <script src="upload.js" defer></script>
     </body>
 </html>
