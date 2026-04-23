@@ -183,7 +183,24 @@
           </div>
           <div class="d-flex justify-content-between">
             <small id="progressLabel" class="text-muted"></small>
-            <small id="progressPercent" class="text-muted">0%</small>
+            <small id="progressPercent" class="text-muted fw-semibold">0%</small>
+          </div>
+
+          <!-- Character counter — visible during translation -->
+          <div id="charsProgressRow" class="d-none mt-2 d-flex justify-content-between align-items-center">
+            <small class="text-muted">
+              <i class="bi bi-type me-1"></i>
+              <span id="charsProcessed">0</span> / <span id="charsTotal">0</span> characters
+            </small>
+            <small id="charsPct" class="text-primary fw-semibold">0%</small>
+          </div>
+
+          <!-- Cookie status — visible after cleanup step -->
+          <div id="cookieStatusRow" class="d-none mt-1">
+            <small class="text-success">
+              <i class="bi bi-shield-check me-1"></i>
+              <span id="cookieStatusText"></span>
+            </small>
           </div>
         </div>
 

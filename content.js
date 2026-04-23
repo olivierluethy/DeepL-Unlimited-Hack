@@ -30,18 +30,29 @@ window.addEventListener("message", async (event) => {
 
   const chunks = splitText(fullText, maxLength);
   const results = [];
+  let cumulativeChars = 0;
 
   for (let i = 0; i < chunks.length; i++) {
     // Clear the input field completely before starting new translation
     await clearInputField();
-    
+
     // Small delay to ensure DeepL resets its state
     await delay(300);
-    
+
     // Insert text and wait for the COMPLETE translation
     const translated = await insertAndTranslateWithVerification(chunks[i], i);
     results.push(translated);
-    
+    cumulativeChars += chunks[i].length;
+
+    // Report per-chunk progress so fullpage.js can drive an accurate char counter
+    chrome.runtime.sendMessage({
+      type: "DEEPL_CHUNK_PROGRESS",
+      requestId,
+      charsTranslatedInBatch: cumulativeChars,
+      chunkIndex: i,
+      totalChunks: chunks.length,
+    }).catch(() => {}); // suppress "no receiver" error when no extension page is open
+
     // Additional delay between chunks to prevent overlap
     if (i < chunks.length - 1) {
       await delay(500);
@@ -68,14 +79,15 @@ window.addEventListener("message", async (event) => {
     chrome.storage.local.set({ verlauf }, () => {
       console.log("History entry saved:", eintrag);
       
-      // ✅ CRITICAL: Signal completion back to the popup/loop.js
+      // ✅ CRITICAL: Signal completion back to the popup/loop.js / fullpage.js
       chrome.runtime.sendMessage({
         type: "DEEPL_TRANSLATION_COMPLETE",
         requestId: requestId,
         success: true,
         originalLength: fullText.length,
-        translatedLength: finalText.length
-      });
+        translatedLength: finalText.length,
+        translatedText: finalText,   // included so fullpage.js can skip the verlauf lookup
+      }).catch(() => {});
       
       showMessagePopup("✅ Done! Entry saved. Viewable in history.");
     });
