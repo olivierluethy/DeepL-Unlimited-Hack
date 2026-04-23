@@ -531,7 +531,13 @@ function loadPdfHistory() {
             <div style="min-width:0; flex:1;">
               <div class="fw-semibold text-truncate" title="${sanitize(entry.filename)}">${sanitize(entry.filename)}</div>
               <small class="text-muted">
-                ${new Date(entry.timestamp).toLocaleString()} &middot;
+                ${new Date(entry.timestamp).toLocaleString('de-CH', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit'
+})} &middot;
                 ${entry.pageCount} page${entry.pageCount !== 1 ? 's' : ''} &middot;
                 ${(entry.translatedLength || 0).toLocaleString()} chars
               </small>
