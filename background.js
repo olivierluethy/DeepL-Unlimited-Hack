@@ -126,10 +126,17 @@ async function startDocumentTranslation(docId) {
         }, BATCH_TIMEOUT_MS);
       });
 
+      // silent: true tells content.js to suppress its per-batch verlauf
+      // entry + toast. The whole document is treated as one logical job:
+      // we aggregate into a single verlauf entry and a single toast in
+      // completeDocument once every batch has succeeded.
       await chrome.scripting.executeScript({
         target: { tabId: deeplTab.id },
         function: (payload, reqId) => {
-          window.postMessage({ type: 'DEEPL_TRANSLATE', payload, requestId: reqId }, '*');
+          window.postMessage(
+            { type: 'DEEPL_TRANSLATE', payload, requestId: reqId, silent: true },
+            '*',
+          );
         },
         args: [batch, requestId],
       });
@@ -158,6 +165,10 @@ async function startDocumentTranslation(docId) {
 
     const translatedText = translatedParts.join('\n\n');
     await completeDocument(doc, translatedText);
+    // Single end-of-document notification. content.js suppressed the
+    // per-batch toasts via the silent flag, so this is the only popup the
+    // user sees for a whole-document translation.
+    fireDocCompleteToast(deeplTab.id);
   } catch (err) {
     await updatePendingDoc(docId, {
       status: 'error',
@@ -203,12 +214,18 @@ function removePendingDoc(docId) {
 // still picks it up untouched) AND mark the source doc as 'completed' in
 // pendingDocuments so it stays visible in the popup. The user can then
 // re-run it via Start, or remove it via the Delete button.
+//
+// Also writes a SINGLE verlauf entry per completed document so the popup's
+// History tab shows exactly one row per Documents-tab translation,
+// regardless of how many internal batches were used.
 async function completeDocument(doc, translatedText) {
-  const entry = {
+  const timestamp = new Date().toISOString();
+
+  const pdfEntry = {
     id: crypto.randomUUID(),
     sourceId: doc.id,
-    timestamp: new Date().toISOString(),
-    createdAt: doc.createdAt || new Date().toISOString(),
+    timestamp,
+    createdAt: doc.createdAt || timestamp,
     filename: doc.filename,
     fileType: doc.fileType,
     pageCount: doc.pageCount || 0,
@@ -218,9 +235,23 @@ async function completeDocument(doc, translatedText) {
     translatedText,
   };
 
+  const verlaufEntry = {
+    id: crypto.randomUUID(),
+    timestamp,
+    original: doc.originalText,
+    translated: translatedText,
+  };
+
+  // Single combined storage write — both archives populated atomically.
   await new Promise((resolve) => {
-    chrome.storage.local.get({ pdfHistory: [] }, ({ pdfHistory }) => {
-      chrome.storage.local.set({ pdfHistory: [...pdfHistory, entry] }, resolve);
+    chrome.storage.local.get({ pdfHistory: [], verlauf: [] }, ({ pdfHistory, verlauf }) => {
+      chrome.storage.local.set(
+        {
+          pdfHistory: [...pdfHistory, pdfEntry],
+          verlauf: [...verlauf, verlaufEntry],
+        },
+        resolve,
+      );
     });
   });
 
@@ -230,9 +261,29 @@ async function completeDocument(doc, translatedText) {
     charsTranslated: (doc.originalText || '').length,
     translatedText,
     translatedLength: translatedText.length,
-    completedAt: new Date().toISOString(),
+    completedAt: timestamp,
     errorMessage: '',
   });
+}
+
+// Best-effort one-shot toast in the DeepL tab. The .catch swallows the
+// error if the user closed the tab between the last batch and now —
+// translation already succeeded, the toast is just confirmation.
+function fireDocCompleteToast(tabId) {
+  return chrome.scripting
+    .executeScript({
+      target: { tabId },
+      function: () => {
+        window.postMessage(
+          {
+            type: 'DEEPL_DOC_TOAST',
+            message: '✅ Done! Entry saved. Viewable in history.',
+          },
+          '*',
+        );
+      },
+    })
+    .catch(() => {});
 }
 
 // ─── Helpers shared with fullpage.js (kept inline so the SW is standalone) ────

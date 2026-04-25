@@ -3,6 +3,58 @@
 // Two-way communication with completion signals
 // ============================================
 
+// Module-scope toast helper. Used by the DEEPL_TRANSLATE handler when a
+// translation is NOT silent, and by DEEPL_DOC_TOAST for the single
+// end-of-document notification fired by background.js.
+function showMessagePopup(message) {
+  const popup = document.createElement("div");
+  popup.innerText = message;
+  Object.assign(popup.style, {
+    position: "fixed",
+    top: "-100px",
+    left: "50%",
+    transform: "translateX(-50%)",
+    background: "#28a745",
+    color: "white",
+    padding: "20px 30px",
+    borderRadius: "10px",
+    boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+    zIndex: 9999,
+    fontSize: "18px",
+    fontWeight: "bold",
+    fontFamily: "sans-serif",
+    opacity: "0",
+    transition: "all 0.6s ease",
+  });
+
+  document.body.appendChild(popup);
+
+  requestAnimationFrame(() => {
+    popup.style.top = "40px";
+    popup.style.opacity = "1";
+  });
+
+  setTimeout(() => {
+    popup.style.top = "-100px";
+    popup.style.opacity = "0";
+    setTimeout(() => popup.remove(), 600);
+  }, 3000);
+}
+
+// One-shot toast trigger used by background.js to emit a single
+// "Done entry saved..." popup at the very end of a Documents-tab
+// translation, after all internal batches have completed.
+window.addEventListener("message", (event) => {
+  if (
+    event.source !== window ||
+    !event.data ||
+    event.data.type !== "DEEPL_DOC_TOAST"
+  )
+    return;
+  const message = event.data.message || "✅ Done! Entry saved. Viewable in history.";
+  showMessagePopup(message);
+});
+
 window.addEventListener("message", async (event) => {
   if (
     event.source !== window ||
@@ -13,6 +65,11 @@ window.addEventListener("message", async (event) => {
 
   const fullText = event.data.payload;
   const requestId = event.data.requestId; // Unique ID for this request
+  // background.js sets this on every Documents-tab batch so per-batch
+  // verlauf entries / toasts are suppressed — those are aggregated into a
+  // single entry + single toast at end-of-document. Main and Batch tabs
+  // do not pass this flag, so their behavior is unchanged.
+  const silent = event.data.silent === true;
   const path = window.location.pathname;
 
   let maxLength = "";
@@ -71,61 +128,36 @@ window.addEventListener("message", async (event) => {
     translated: finalText,
   };
 
-  // Save to history
-  chrome.storage.local.get({ verlauf: [] }, (result) => {
-    const verlauf = result.verlauf;
-    verlauf.push(eintrag);
+  // ✅ Always signal completion back to the caller (popup / loop / background)
+  // — even in silent mode the orchestrator needs to know the batch is done.
+  const sendCompletion = () => {
+    chrome.runtime.sendMessage({
+      type: "DEEPL_TRANSLATION_COMPLETE",
+      requestId: requestId,
+      success: true,
+      originalLength: fullText.length,
+      translatedLength: finalText.length,
+      translatedText: finalText, // lets the orchestrator skip the verlauf lookup
+    }).catch(() => {});
+  };
 
-    chrome.storage.local.set({ verlauf }, () => {
-      console.log("History entry saved:", eintrag);
-      
-      // ✅ CRITICAL: Signal completion back to the popup/loop.js / fullpage.js
-      chrome.runtime.sendMessage({
-        type: "DEEPL_TRANSLATION_COMPLETE",
-        requestId: requestId,
-        success: true,
-        originalLength: fullText.length,
-        translatedLength: finalText.length,
-        translatedText: finalText,   // included so fullpage.js can skip the verlauf lookup
-      }).catch(() => {});
-      
-      showMessagePopup("✅ Done! Entry saved. Viewable in history.");
+  if (silent) {
+    // Documents-tab batch: skip the per-batch verlauf write and toast.
+    // background.js writes ONE verlauf entry and fires ONE toast for the
+    // entire document via DEEPL_DOC_TOAST after all batches succeed.
+    sendCompletion();
+  } else {
+    // Main/Batch path: original behavior — save to verlauf and toast.
+    chrome.storage.local.get({ verlauf: [] }, (result) => {
+      const verlauf = result.verlauf;
+      verlauf.push(eintrag);
+
+      chrome.storage.local.set({ verlauf }, () => {
+        console.log("History entry saved:", eintrag);
+        sendCompletion();
+        showMessagePopup("✅ Done! Entry saved. Viewable in history.");
+      });
     });
-  });
-
-  function showMessagePopup(message) {
-    const popup = document.createElement("div");
-    popup.innerText = message;
-    Object.assign(popup.style, {
-      position: "fixed",
-      top: "-100px",
-      left: "50%",
-      transform: "translateX(-50%)",
-      background: "#28a745",
-      color: "white",
-      padding: "20px 30px",
-      borderRadius: "10px",
-      boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
-      zIndex: 9999,
-      fontSize: "18px",
-      fontWeight: "bold",
-      fontFamily: "sans-serif",
-      opacity: "0",
-      transition: "all 0.6s ease",
-    });
-
-    document.body.appendChild(popup);
-
-    requestAnimationFrame(() => {
-      popup.style.top = "40px";
-      popup.style.opacity = "1";
-    });
-
-    setTimeout(() => {
-      popup.style.top = "-100px";
-      popup.style.opacity = "0";
-      setTimeout(() => popup.remove(), 600);
-    }, 3000);
   }
 });
 
