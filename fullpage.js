@@ -16,24 +16,31 @@ const BATCH_TIMEOUT_MS = 8 * 60 * 1_000; // 8 minutes per batch
 
 // ─── Module-level state ───────────────────────────────────────────────────────
 let currentFile = null;
-let currentFileType = null; // 'pdf' | 'excel'
+let currentFileType = null; // 'pdf' | 'excel' | 'pptx'
 let extractedText = '';
 let extractedPageCount = 0;
 let lastTranslatedPdfBytes = null;
 let lastTranslatedExcelBytes = null;
+let lastTranslatedPptxBytes = null;
 let stopRequested = false;
 const pendingTranslations = new Map();
 
-// Sheet separator used when serializing a workbook to plain text.
-// Kept on its own line so split/recombination is reliable.
+// Sheet/slide separators used when serializing workbooks/presentations to text.
+// Each marker sits on its own line so split/recombination stays reliable.
 const SHEET_SEPARATOR_PREFIX = '---SHEET: ';
 const SHEET_SEPARATOR_SUFFIX = '---';
+const SLIDE_SEPARATOR_PREFIX = '---SLIDE: ';
+const SLIDE_SEPARATOR_SUFFIX = '---';
+// Matches any "---SLIDE: <number>---" marker on its own line; used to split the
+// translated text back into per-slide sections during PPTX generation.
+const SLIDE_SEPARATOR_REGEX = /\n*---SLIDE:\s*\d+---\n*/i;
 
 // ─── File type detection ─────────────────────────────────────────────────────
 function detectFileType(file) {
   const name = (file.name || '').toLowerCase();
   if (name.endsWith('.pdf')) return 'pdf';
   if (name.endsWith('.xlsx') || name.endsWith('.xls')) return 'excel';
+  if (name.endsWith('.pptx')) return 'pptx';
 
   const mime = file.type || '';
   if (mime === 'application/pdf') return 'pdf';
@@ -42,6 +49,9 @@ function detectFileType(file) {
     mime === 'application/vnd.ms-excel'
   ) {
     return 'excel';
+  }
+  if (mime === 'application/vnd.openxmlformats-officedocument.presentationml.presentation') {
+    return 'pptx';
   }
   return null;
 }
@@ -110,7 +120,10 @@ function initUploadUI() {
     if (detectFileType(file)) {
       handleFileSelected(file);
     } else {
-      showAlert('Unsupported file type. Please drop a PDF or Excel (.xlsx, .xls) file.', 'warning');
+      showAlert(
+        'Unsupported file type. Please drop a PDF, Excel (.xlsx, .xls) or PowerPoint (.pptx) file.',
+        'warning',
+      );
     }
   });
 
@@ -138,9 +151,11 @@ function initUploadUI() {
   });
 
   document.getElementById('downloadBtn').addEventListener('click', () => {
-    const baseName = (currentFile?.name || 'translation').replace(/\.(pdf|xlsx|xls)$/i, '');
+    const baseName = (currentFile?.name || 'translation').replace(/\.(pdf|xlsx|xls|pptx)$/i, '');
     if (currentFileType === 'excel' && lastTranslatedExcelBytes) {
       triggerExcelDownload(lastTranslatedExcelBytes, `${baseName}_translated.xlsx`);
+    } else if (currentFileType === 'pptx' && lastTranslatedPptxBytes) {
+      triggerPptxDownload(lastTranslatedPptxBytes, `${baseName}_translated.pptx`);
     } else if (lastTranslatedPdfBytes) {
       triggerPdfDownload(lastTranslatedPdfBytes, `${baseName}_translated.pdf`);
     }
@@ -157,7 +172,10 @@ function initUploadUI() {
 async function handleFileSelected(file) {
   const fileType = detectFileType(file);
   if (!fileType) {
-    showAlert('Unsupported file type. Please pick a PDF or Excel (.xlsx, .xls) file.', 'warning');
+    showAlert(
+      'Unsupported file type. Please pick a PDF, Excel (.xlsx, .xls) or PowerPoint (.pptx) file.',
+      'warning',
+    );
     return;
   }
 
@@ -167,6 +185,7 @@ async function handleFileSelected(file) {
   extractedPageCount = 0;
   lastTranslatedPdfBytes = null;
   lastTranslatedExcelBytes = null;
+  lastTranslatedPptxBytes = null;
 
   applyFileTypeUi(fileType);
   document.getElementById('fileName').textContent = file.name;
@@ -183,11 +202,10 @@ async function handleFileSelected(file) {
 
   document.getElementById('progressSection').classList.remove('d-none');
   setStep('extract', 'active');
-  updateProgress(5, fileType === 'excel' ? 'Reading Excel file…' : 'Reading PDF…');
+  updateProgress(5, readingMessageFor(fileType));
 
   try {
-    const result =
-      fileType === 'excel' ? await extractTextFromExcel(file) : await extractTextFromPDF(file);
+    const result = await extractTextForType(fileType, file);
     extractedText = result.text;
     extractedPageCount = result.pageCount;
 
@@ -197,21 +215,42 @@ async function handleFileSelected(file) {
     document.getElementById('charCountInfo').classList.remove('d-none');
 
     setStep('extract', 'done');
-    const unitLabel =
-      fileType === 'excel'
-        ? `${result.pageCount} sheet${result.pageCount !== 1 ? 's' : ''}`
-        : `${result.pageCount} page${result.pageCount !== 1 ? 's' : ''}`;
     updateProgress(
       10,
-      `Ready — ${unitLabel}, ${result.text.length.toLocaleString()} characters`,
+      `Ready — ${unitLabelFor(fileType, result.pageCount)}, ` +
+        `${result.text.length.toLocaleString()} characters`,
     );
     document.getElementById('translateBtn').disabled = false;
   } catch (err) {
     setStep('extract', 'error');
     updateProgress(0, 'Extraction failed');
-    const what = fileType === 'excel' ? 'Excel file' : 'PDF';
-    showAlert('Could not read ' + what + ': ' + err.message, 'danger');
+    showAlert('Could not read ' + humanFileType(fileType) + ': ' + err.message, 'danger');
   }
+}
+
+// ─── File-type label helpers ──────────────────────────────────────────────────
+function humanFileType(fileType) {
+  if (fileType === 'excel') return 'Excel file';
+  if (fileType === 'pptx') return 'PowerPoint file';
+  return 'PDF';
+}
+
+function readingMessageFor(fileType) {
+  if (fileType === 'excel') return 'Reading Excel file…';
+  if (fileType === 'pptx') return 'Reading PowerPoint file…';
+  return 'Reading PDF…';
+}
+
+function unitLabelFor(fileType, count) {
+  if (fileType === 'excel') return `${count} sheet${count !== 1 ? 's' : ''}`;
+  if (fileType === 'pptx') return `${count} slide${count !== 1 ? 's' : ''}`;
+  return `${count} page${count !== 1 ? 's' : ''}`;
+}
+
+function extractTextForType(fileType, file) {
+  if (fileType === 'excel') return extractTextFromExcel(file);
+  if (fileType === 'pptx') return extractTextFromPptx(file);
+  return extractTextFromPDF(file);
 }
 
 // Update file-type icon, badge, labels, and step text for the current file.
@@ -233,6 +272,16 @@ function applyFileTypeUi(fileType) {
     if (stepGenLabel) stepGenLabel.textContent = 'Generate Excel';
     if (translateLabel) translateLabel.textContent = 'Translate Excel';
     if (downloadLabel) downloadLabel.textContent = 'Download Translated Excel';
+  } else if (fileType === 'pptx') {
+    if (icon) icon.className = 'bi bi-file-earmark-slides-fill text-warning fs-5';
+    if (badge) {
+      badge.className = 'badge bg-warning text-dark flex-shrink-0';
+      badge.textContent = 'PPTX';
+    }
+    if (pageLabel) pageLabel.textContent = 'Slides';
+    if (stepGenLabel) stepGenLabel.textContent = 'Generate PowerPoint';
+    if (translateLabel) translateLabel.textContent = 'Translate PowerPoint';
+    if (downloadLabel) downloadLabel.textContent = 'Download Translated PowerPoint';
   } else {
     if (icon) icon.className = 'bi bi-file-pdf-fill text-danger fs-5';
     if (badge) {
@@ -298,6 +347,63 @@ async function extractTextFromExcel(file) {
   return {
     text: sheetTexts.join('\n\n'),
     pageCount: workbook.SheetNames.length,
+  };
+}
+
+// ─── Text extraction: PPTX via JSZip + DOMParser ─────────────────────────────
+// A .pptx is an OOXML ZIP. Slide XML lives at ppt/slides/slide<N>.xml; visible
+// text sits inside <a:t> runs grouped under <a:p> paragraphs (drawingml ns).
+// We pull plain text only — no layout, images, or shapes — per the spec.
+async function extractTextFromPptx(file) {
+  if (typeof JSZip === 'undefined') {
+    throw new Error('JSZip library not loaded. Please reload the extension.');
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+  const zip = await JSZip.loadAsync(arrayBuffer);
+
+  // Sort slides by their numeric suffix (slide1, slide2, …, slide10) so order
+  // matches the original deck rather than lexicographic order.
+  const slidePaths = Object.keys(zip.files)
+    .filter((p) => /^ppt\/slides\/slide\d+\.xml$/i.test(p))
+    .sort((a, b) => {
+      const an = parseInt(a.match(/slide(\d+)\.xml/i)[1], 10);
+      const bn = parseInt(b.match(/slide(\d+)\.xml/i)[1], 10);
+      return an - bn;
+    });
+
+  if (!slidePaths.length) {
+    throw new Error('No slides found in this PowerPoint file.');
+  }
+
+  const DRAWINGML_NS = 'http://schemas.openxmlformats.org/drawingml/2006/main';
+  const parser = new DOMParser();
+  const slideTexts = [];
+
+  for (let i = 0; i < slidePaths.length; i++) {
+    const xml = await zip.file(slidePaths[i]).async('string');
+    const doc = parser.parseFromString(xml, 'application/xml');
+
+    // Iterate paragraphs to keep one paragraph per line; concatenate its text
+    // runs so split words inside a single paragraph stay together.
+    const pNodes = doc.getElementsByTagNameNS(DRAWINGML_NS, 'p');
+    const lines = [];
+    for (let p = 0; p < pNodes.length; p++) {
+      const tNodes = pNodes[p].getElementsByTagNameNS(DRAWINGML_NS, 't');
+      let line = '';
+      for (let t = 0; t < tNodes.length; t++) {
+        line += tNodes[t].textContent || '';
+      }
+      if (line.trim()) lines.push(line);
+    }
+
+    const header = `${SLIDE_SEPARATOR_PREFIX}${i + 1}${SLIDE_SEPARATOR_SUFFIX}`;
+    slideTexts.push(header + '\n' + lines.join('\n'));
+  }
+
+  return {
+    text: slideTexts.join('\n\n'),
+    pageCount: slidePaths.length,
   };
 }
 
@@ -379,17 +485,20 @@ async function startPipeline() {
     // Mark translate step done; show final char count
     setStep('translate', 'done');
     updateCharCounter(totalChars, totalChars);
-    updateProgress(90, currentFileType === 'excel' ? 'Generating Excel…' : 'Generating PDF…');
+    updateProgress(90, generatingMessageFor(currentFileType));
 
     // ── 5. Generate translated output file ────────────────────────────────────
     setStep('generate', 'active');
     const translatedText = translatedParts.join('\n\n');
+    lastTranslatedPdfBytes = null;
+    lastTranslatedExcelBytes = null;
+    lastTranslatedPptxBytes = null;
     if (currentFileType === 'excel') {
       lastTranslatedExcelBytes = createTranslatedExcel(translatedText);
-      lastTranslatedPdfBytes = null;
+    } else if (currentFileType === 'pptx') {
+      lastTranslatedPptxBytes = await createTranslatedPptx(translatedText);
     } else {
       lastTranslatedPdfBytes = await createTranslatedPDF(currentFile.name, translatedText);
-      lastTranslatedExcelBytes = null;
     }
     setStep('generate', 'done');
     updateProgress(100, 'Done!');
@@ -410,11 +519,7 @@ async function startPipeline() {
     });
 
     document.getElementById('downloadBtn').classList.remove('d-none');
-    const successHint =
-      currentFileType === 'excel'
-        ? 'Translation complete! Click "Download Translated Excel" to save.'
-        : 'Translation complete! Click "Download PDF" to save.';
-    showAlert(successHint, 'success');
+    showAlert(successHintFor(currentFileType), 'success');
   } catch (err) {
     if (!stopRequested) {
       showAlert(err.message, 'danger');
@@ -426,6 +531,19 @@ async function startPipeline() {
     document.getElementById('stopBtn').classList.add('d-none');
     document.getElementById('translateBtn').disabled = false;
   }
+}
+
+// ─── File-type message helpers ────────────────────────────────────────────────
+function generatingMessageFor(fileType) {
+  if (fileType === 'excel') return 'Generating Excel…';
+  if (fileType === 'pptx') return 'Generating PowerPoint…';
+  return 'Generating PDF…';
+}
+
+function successHintFor(fileType) {
+  if (fileType === 'excel') return 'Translation complete! Click "Download Translated Excel" to save.';
+  if (fileType === 'pptx') return 'Translation complete! Click "Download Translated PowerPoint" to save.';
+  return 'Translation complete! Click "Download PDF" to save.';
 }
 
 // ─── DeepL translation (one batch) ───────────────────────────────────────────
@@ -645,7 +763,69 @@ function createTranslatedExcel(translatedText) {
   return new Uint8Array(out);
 }
 
+// ─── PPTX generation (PptxGenJS) ──────────────────────────────────────────────
+// Splits the recombined translated text on "---SLIDE: <n>---" markers, then
+// emits one slide per section as a single plain-text block. No layout, fonts,
+// images, or shapes are reproduced — text-only per the spec.
+async function createTranslatedPptx(translatedText) {
+  if (typeof PptxGenJS === 'undefined') {
+    throw new Error('PptxGenJS library not loaded. Please reload the extension.');
+  }
+
+  // Drop empty leading/trailing sections from the marker-based split. If no
+  // markers were preserved (e.g. the translator collapsed them), fall back to
+  // a single slide with all the text.
+  let sections = translatedText.split(SLIDE_SEPARATOR_REGEX).map((s) => s.trim()).filter(Boolean);
+  if (sections.length === 0) sections = [translatedText.trim() || ' '];
+
+  const pres = new PptxGenJS();
+  pres.layout = 'LAYOUT_WIDE';
+
+  for (const sectionText of sections) {
+    const slide = pres.addSlide();
+    slide.addText(sectionText, {
+      x: 0.5,
+      y: 0.5,
+      w: 12.33, // LAYOUT_WIDE is 13.33 × 7.5 in
+      h: 6.5,
+      fontSize: 14,
+      valign: 'top',
+      wrap: true,
+    });
+  }
+
+  // write() returns a Promise that resolves to the requested binary form.
+  const out = await pres.write({ outputType: 'arraybuffer' });
+  return new Uint8Array(out);
+}
+
 // ─── History ──────────────────────────────────────────────────────────────────
+// Visual metadata for a history row keyed by the entry's fileType.
+function historyMetaFor(fileType) {
+  if (fileType === 'excel') {
+    return {
+      iconClass: 'bi-file-earmark-spreadsheet-fill text-success',
+      badgeClass: 'bg-success',
+      badgeText: 'EXCEL',
+      dlTitle: 'Download translated Excel',
+    };
+  }
+  if (fileType === 'pptx') {
+    return {
+      iconClass: 'bi-file-earmark-slides-fill text-warning',
+      badgeClass: 'bg-warning text-dark',
+      badgeText: 'PPTX',
+      dlTitle: 'Download translated PowerPoint',
+    };
+  }
+  return {
+    iconClass: 'bi-file-pdf-fill text-danger',
+    badgeClass: 'bg-danger',
+    badgeText: 'PDF',
+    dlTitle: 'Download translated PDF',
+  };
+}
+
 function loadPdfHistory() {
   chrome.storage.local.get({ pdfHistory: [] }, ({ pdfHistory }) => {
     const container = document.getElementById('pdfHistoryList');
@@ -663,16 +843,12 @@ function loadPdfHistory() {
     [...pdfHistory].reverse().forEach((entry) => {
       // Older entries may not have fileType — default to 'pdf' for backward compat.
       const fileType = entry.fileType || 'pdf';
-      const isExcel = fileType === 'excel';
-      const iconClass = isExcel
-        ? 'bi-file-earmark-spreadsheet-fill text-success'
-        : 'bi-file-pdf-fill text-danger';
-      const badgeClass = isExcel ? 'bg-success' : 'bg-danger';
-      const badgeText = isExcel ? 'EXCEL' : 'PDF';
-      const unitWord = isExcel
-        ? `${entry.pageCount} sheet${entry.pageCount !== 1 ? 's' : ''}`
-        : `${entry.pageCount} page${entry.pageCount !== 1 ? 's' : ''}`;
-      const dlTitle = isExcel ? 'Download translated Excel' : 'Download translated PDF';
+      const meta = historyMetaFor(fileType);
+      const unitWord = unitLabelFor(fileType, entry.pageCount);
+      const iconClass = meta.iconClass;
+      const badgeClass = meta.badgeClass;
+      const badgeText = meta.badgeText;
+      const dlTitle = meta.dlTitle;
 
       const card = document.createElement('div');
       card.className = 'card mb-2 shadow-sm';
@@ -710,10 +886,13 @@ function loadPdfHistory() {
         this.disabled = true;
         this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
         try {
-          const baseName = entry.filename.replace(/\.(pdf|xlsx|xls)$/i, '');
-          if (isExcel) {
+          const baseName = entry.filename.replace(/\.(pdf|xlsx|xls|pptx)$/i, '');
+          if (fileType === 'excel') {
             const bytes = createTranslatedExcel(entry.translatedText);
             triggerExcelDownload(bytes, baseName + '_translated.xlsx');
+          } else if (fileType === 'pptx') {
+            const bytes = await createTranslatedPptx(entry.translatedText);
+            triggerPptxDownload(bytes, baseName + '_translated.pptx');
           } else {
             const bytes = await createTranslatedPDF(entry.filename, entry.translatedText);
             triggerPdfDownload(bytes, baseName + '_translated.pdf');
@@ -756,6 +935,18 @@ function triggerPdfDownload(bytes, filename) {
 function triggerExcelDownload(bytes, filename) {
   const blob = new Blob([bytes], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5_000);
+}
+
+function triggerPptxDownload(bytes, filename) {
+  const blob = new Blob([bytes], {
+    type: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');

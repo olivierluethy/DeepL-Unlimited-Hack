@@ -106,7 +106,7 @@
       <div class="page-header d-flex justify-content-between align-items-center">
         <div>
           <h1><i class="bi bi-file-earmark-text-fill me-2"></i>DeepL Document Translator</h1>
-          <p>Upload a PDF or Excel → Translate via DeepL → Download translated file</p>
+          <p>Upload a PDF, Excel or PowerPoint → Translate via DeepL → Download translated file</p>
         </div>
       </div>
 
@@ -119,9 +119,9 @@
         <!-- Drop zone -->
         <div id="dropZone">
           <i class="bi bi-file-earmark-arrow-up fs-1 text-primary mb-2 d-block"></i>
-          <p class="fw-semibold mb-1">Drag &amp; drop a PDF or Excel file here</p>
-          <p class="text-muted small mb-3">Supported: .pdf, .xlsx, .xls — or click to browse</p>
-          <input type="file" id="pdfFileInput" accept=".pdf,.xlsx,.xls,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="d-none" />
+          <p class="fw-semibold mb-1">Drag &amp; drop a PDF, Excel or PowerPoint file here</p>
+          <p class="text-muted small mb-3">Supported: .pdf, .xlsx, .xls, .pptx — or click to browse</p>
+          <input type="file" id="pdfFileInput" accept=".pdf,.xlsx,.xls,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.presentationml.presentation" class="d-none" />
           <button
             class="btn btn-outline-primary btn-sm"
             onclick="document.getElementById('pdfFileInput').click(); event.stopPropagation();"
@@ -247,6 +247,8 @@
     <script src="js/pdf.min.js"></script>
     <script src="js/pdf-lib.min.js"></script>
     <script src="js/xlsx.full.min.js"></script>
+    <script src="js/jszip.min.js"></script>
+    <script src="js/pptxgen.min.js"></script>
     <script src="js/bootstrap.bundle.min.js"></script>
     <script src="fullpage.js"></script>
   </body>
