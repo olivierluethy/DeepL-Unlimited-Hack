@@ -868,8 +868,21 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 });
 
-document.getElementById("openFullPageBtn").addEventListener("click", () => {
-  chrome.tabs.create({ url: chrome.runtime.getURL("fullpage.html") });
+document.getElementById("openFullPageBtn").addEventListener("click", async () => {
+  const url = chrome.runtime.getURL("fullpage.html");
+  
+  // Suche nach Tabs mit genau dieser URL
+  const tabs = await chrome.tabs.query({ url: url });
+
+  if (tabs.length > 0) {
+    // Tab existiert bereits -> in den Vordergrund holen
+    chrome.tabs.update(tabs[0].id, { active: true });
+    // Optional: Auch das Fenster des Tabs fokussieren
+    chrome.windows.update(tabs[0].windowId, { focused: true });
+  } else {
+    // Tab existiert noch nicht -> neu erstellen
+    chrome.tabs.create({ url: url });
+  }
 });
 
 // ─── Documents tab: pending-uploads list ─────────────────────────────────────
@@ -953,27 +966,10 @@ function pendingDocRowHtml(doc) {
   const total = (doc.originalText || "").length;
   const charsTranslated = doc.charsTranslated || 0;
   const progress = clampPct(doc.progress);
-  const isProcessing = doc.status === "processing";
   const isError = doc.status === "error";
+  const isCompleted = doc.status === "completed";
   const safeName = sanitizePopupText(doc.filename || "(untitled)");
   const safeError = sanitizePopupText(doc.errorMessage || "");
-
-  const actionsHtml = isProcessing
-    ? `<button class="btn btn-sm btn-outline-danger" data-doc-action="stop" data-doc-id="${doc.id}" title="Stop">
-         <i class="bi bi-stop-fill"></i>
-       </button>`
-    : `<button class="btn btn-sm btn-success" data-doc-action="start" data-doc-id="${doc.id}" title="Start translation">
-         <i class="bi bi-play-fill"></i>
-       </button>
-       <button class="btn btn-sm btn-outline-secondary" data-doc-action="delete" data-doc-id="${doc.id}" title="Delete">
-         <i class="bi bi-trash"></i>
-       </button>`;
-
-  const statusLabel = isProcessing
-    ? "Translating…"
-    : isError
-    ? "Error"
-    : "Ready";
 
   return `
     <div class="card mb-2 shadow-sm pending-doc-row" data-doc-id="${doc.id}">
@@ -984,15 +980,15 @@ function pendingDocRowHtml(doc) {
             <div class="fw-semibold text-truncate" title="${safeName}">${safeName}</div>
             <div class="d-flex align-items-center gap-1 flex-wrap">
               <span class="badge ${meta.badgeClass}">${meta.badgeText}</span>
-              <small class="text-muted pending-doc-status">${statusLabel}</small>
+              <small class="text-muted pending-doc-status">${pendingDocStatusLabel(doc.status)}</small>
             </div>
           </div>
-          <div class="d-flex gap-1 flex-shrink-0 pending-doc-actions">
-            ${actionsHtml}
+          <div class="d-flex gap-1 flex-shrink-0 pending-doc-actions" data-rendered-status="${doc.status || "idle"}">
+            ${pendingDocActionsHtml(doc)}
           </div>
         </div>
         <div class="progress mt-2" style="height:4px;">
-          <div class="progress-bar ${isError ? "bg-danger" : "bg-primary"} pending-doc-bar"
+          <div class="progress-bar ${pendingDocBarClass(doc)} pending-doc-bar"
                role="progressbar" style="width:${progress}%"></div>
         </div>
         <div class="d-flex justify-content-between mt-1">
@@ -1006,8 +1002,56 @@ function pendingDocRowHtml(doc) {
             ? `<small class="text-danger d-block mt-1 pending-doc-error">${safeError}</small>`
             : `<small class="text-danger d-block mt-1 pending-doc-error d-none"></small>`
         }
+        ${
+          isCompleted
+            ? `<small class="text-success d-block mt-1">
+                 <i class="bi bi-check-circle-fill me-1"></i>Translation complete. Click Start to re-run, or Delete to remove.
+               </small>`
+            : ""
+        }
       </div>
     </div>`;
+}
+
+// Status text shown next to the type badge in each row.
+function pendingDocStatusLabel(status) {
+  if (status === "processing") return "Translating…";
+  if (status === "completed") return "Completed";
+  if (status === "error") return "Error";
+  return "Ready";
+}
+
+// Progress-bar colour matches the row's status.
+function pendingDocBarClass(doc) {
+  if (doc.status === "error") return "bg-danger";
+  if (doc.status === "completed") return "bg-success";
+  return "bg-primary";
+}
+
+// Render the action buttons for one row. Centralised so the initial render
+// and the in-place update path share exactly the same markup. Completed
+// rows get a re-run icon plus Delete; idle/error get Start plus Delete;
+// processing rows show only Stop.
+function pendingDocActionsHtml(doc) {
+  if (doc.status === "processing") {
+    return `<button class="btn btn-sm btn-outline-danger" data-doc-action="stop" data-doc-id="${doc.id}" title="Stop">
+              <i class="bi bi-stop-fill"></i>
+            </button>`;
+  }
+  if (doc.status === "completed") {
+    return `<button class="btn btn-sm btn-success" data-doc-action="start" data-doc-id="${doc.id}" title="Re-run translation">
+              <i class="bi bi-arrow-clockwise"></i>
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" data-doc-action="delete" data-doc-id="${doc.id}" title="Delete">
+              <i class="bi bi-trash"></i>
+            </button>`;
+  }
+  return `<button class="btn btn-sm btn-success" data-doc-action="start" data-doc-id="${doc.id}" title="Start translation">
+            <i class="bi bi-play-fill"></i>
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" data-doc-action="delete" data-doc-id="${doc.id}" title="Delete">
+            <i class="bi bi-trash"></i>
+          </button>`;
 }
 
 // In-place update for a single row — avoids a full list re-render on every
@@ -1022,14 +1066,16 @@ function updatePendingDocRow(doc) {
   const total = (doc.originalText || "").length;
   const charsTranslated = doc.charsTranslated || 0;
   const progress = clampPct(doc.progress);
-  const isProcessing = doc.status === "processing";
   const isError = doc.status === "error";
+  const isCompleted = doc.status === "completed";
+  const status = doc.status || "idle";
 
   const bar = row.querySelector(".pending-doc-bar");
   if (bar) {
     bar.style.width = progress + "%";
     bar.classList.toggle("bg-danger", isError);
-    bar.classList.toggle("bg-primary", !isError);
+    bar.classList.toggle("bg-success", isCompleted);
+    bar.classList.toggle("bg-primary", !isError && !isCompleted);
   }
 
   const charsEl = row.querySelector(".pending-doc-chars");
@@ -1041,7 +1087,7 @@ function updatePendingDocRow(doc) {
 
   const statusEl = row.querySelector(".pending-doc-status");
   if (statusEl) {
-    statusEl.textContent = isProcessing ? "Translating…" : isError ? "Error" : "Ready";
+    statusEl.textContent = pendingDocStatusLabel(doc.status);
   }
 
   const errEl = row.querySelector(".pending-doc-error");
@@ -1055,22 +1101,13 @@ function updatePendingDocRow(doc) {
     }
   }
 
-  // Swap the action buttons when the running state changes.
+  // Re-render the action buttons only when the row's status actually
+  // changes, so chunk-progress ticks (which keep status='processing')
+  // don't repeatedly rebuild the same DOM.
   const actions = row.querySelector(".pending-doc-actions");
-  if (actions) {
-    const showingStop = !!actions.querySelector('[data-doc-action="stop"]');
-    if (showingStop !== isProcessing) {
-      actions.innerHTML = isProcessing
-        ? `<button class="btn btn-sm btn-outline-danger" data-doc-action="stop" data-doc-id="${doc.id}" title="Stop">
-             <i class="bi bi-stop-fill"></i>
-           </button>`
-        : `<button class="btn btn-sm btn-success" data-doc-action="start" data-doc-id="${doc.id}" title="Start translation">
-             <i class="bi bi-play-fill"></i>
-           </button>
-           <button class="btn btn-sm btn-outline-secondary" data-doc-action="delete" data-doc-id="${doc.id}" title="Delete">
-             <i class="bi bi-trash"></i>
-           </button>`;
-    }
+  if (actions && actions.dataset.renderedStatus !== status) {
+    actions.innerHTML = pendingDocActionsHtml(doc);
+    actions.dataset.renderedStatus = status;
   }
 }
 

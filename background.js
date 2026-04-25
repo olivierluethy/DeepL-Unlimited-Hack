@@ -85,11 +85,15 @@ async function startDocumentTranslation(docId) {
   const stopFlag = { stopRequested: false };
   stopFlags.set(docId, stopFlag);
 
+  // Reset stale fields so a re-run of a completed doc starts clean.
   await updatePendingDoc(docId, {
     status: 'processing',
     progress: 0,
     charsTranslated: 0,
     errorMessage: '',
+    translatedText: '',
+    translatedLength: 0,
+    completedAt: '',
   });
 
   try {
@@ -195,11 +199,14 @@ function removePendingDoc(docId) {
   });
 }
 
-// On success, move the entry from pendingDocuments to pdfHistory so the
-// full-page History list picks it up untouched.
+// On success, archive a copy to pdfHistory (so the full-page History list
+// still picks it up untouched) AND mark the source doc as 'completed' in
+// pendingDocuments so it stays visible in the popup. The user can then
+// re-run it via Start, or remove it via the Delete button.
 async function completeDocument(doc, translatedText) {
   const entry = {
-    id: doc.id,
+    id: crypto.randomUUID(),
+    sourceId: doc.id,
     timestamp: new Date().toISOString(),
     createdAt: doc.createdAt || new Date().toISOString(),
     filename: doc.filename,
@@ -216,7 +223,16 @@ async function completeDocument(doc, translatedText) {
       chrome.storage.local.set({ pdfHistory: [...pdfHistory, entry] }, resolve);
     });
   });
-  await removePendingDoc(doc.id);
+
+  await updatePendingDoc(doc.id, {
+    status: 'completed',
+    progress: 100,
+    charsTranslated: (doc.originalText || '').length,
+    translatedText,
+    translatedLength: translatedText.length,
+    completedAt: new Date().toISOString(),
+    errorMessage: '',
+  });
 }
 
 // ─── Helpers shared with fullpage.js (kept inline so the SW is standalone) ────
