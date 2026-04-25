@@ -1,34 +1,26 @@
 // ============================================
-// fullpage.js — PDF Upload & Translation Pipeline
+// fullpage.js — Document upload + history surface
 // ============================================
+// Translation execution lives in background.js (popup-driven). This page
+// only handles file uploads, text extraction, and the translation history
+// list. Uploaded documents are mirrored into chrome.storage.local
+// .pendingDocuments so the popup → Documents tab can pick them up and
+// trigger translation while the user stays on the DeepL tab.
 
 // Configure PDF.js worker (must run before any getDocument call)
 if (typeof pdfjsLib !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('js/pdf.worker.min.js');
 }
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-// Each batch is sent as one request to content.js, which further splits it into
-// ~1 500-char DeepL chunks internally.  8 000 chars → ≤6 DeepL chunks →
-// worst-case batch time ≈ 6 × 31 s = 186 s, well inside the 8-min timeout.
-const BATCH_SIZE = 8_000;
-const BATCH_TIMEOUT_MS = 8 * 60 * 1_000; // 8 minutes per batch
-
 // ─── Module-level state ───────────────────────────────────────────────────────
 let currentFile = null;
 let currentFileType = null; // 'pdf' | 'excel' | 'pptx'
 // Stable id assigned at upload time. Used to mirror the document into the
-// shared `pendingDocuments` store so the popup can show it / start it. The
-// id is also used as the pdfHistory entry id on completion (matching the
-// background-driven flow), so the same upload appears once across surfaces.
+// shared `pendingDocuments` store so the popup can show it and start the
+// translation through the service worker.
 let currentDocId = null;
 let extractedText = '';
 let extractedPageCount = 0;
-let lastTranslatedPdfBytes = null;
-let lastTranslatedExcelBytes = null;
-let lastTranslatedPptxBytes = null;
-let stopRequested = false;
-const pendingTranslations = new Map();
 
 // Sheet/slide separators used when serializing workbooks/presentations to text.
 // Each marker sits on its own line so split/recombination stays reliable.
@@ -60,45 +52,6 @@ function detectFileType(file) {
   }
   return null;
 }
-
-// Filled in startPipeline / translateViaDeepL to let the progress handler know
-// which batch is currently in flight.
-// Shape: { requestId, startChars, totalChars, batchIdx, batchCount }
-let activeBatch = null;
-
-// Ref to the cookie-change listener so we can remove it when done
-let cookieMonitorListener = null;
-
-// ─── Runtime message listener ─────────────────────────────────────────────────
-chrome.runtime.onMessage.addListener((message) => {
-  // ── Completion signal ──
-  if (message.type === 'DEEPL_TRANSLATION_COMPLETE') {
-    const resolver = pendingTranslations.get(message.requestId);
-    if (resolver) {
-      resolver(message);
-      pendingTranslations.delete(message.requestId);
-    }
-    return;
-  }
-
-  // ── Per-chunk progress from content.js ──
-  // content.js sends this after every ~1 500-char DeepL sub-chunk completes,
-  // giving us character-accurate real-time progress.
-  if (message.type === 'DEEPL_CHUNK_PROGRESS' && activeBatch) {
-    if (message.requestId !== activeBatch.requestId) return; // wrong batch
-
-    const charsTranslated = activeBatch.startChars + message.charsTranslatedInBatch;
-    // Map translated chars to 12–90 % of the progress bar (10 % for extraction,
-    // 2 % for cookie cleanup already consumed; 10 % reserved for PDF generation).
-    const pct = Math.min(89, Math.round((charsTranslated / activeBatch.totalChars) * 78) + 12);
-
-    updateProgress(
-      pct,
-      `Translating — batch ${activeBatch.batchIdx + 1} / ${activeBatch.batchCount}`,
-    );
-    updateCharCounter(charsTranslated, activeBatch.totalChars);
-  }
-});
 
 // ─── Boot ─────────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
@@ -136,35 +89,8 @@ function initUploadUI() {
     if (e.target.files[0]) handleFileSelected(e.target.files[0]);
   });
 
-  document.getElementById('translateBtn').addEventListener('click', startPipeline);
-
-  document.getElementById('stopBtn').addEventListener('click', () => {
-    stopRequested = true;
-    // Cancel any in-flight batch promise immediately
-    for (const [key, resolver] of pendingTranslations.entries()) {
-      resolver({ success: false, cancelled: true });
-      pendingTranslations.delete(key);
-    }
-    activeBatch = null;
-    stopCookieMonitor();
-    document.getElementById('stopBtn').classList.add('d-none');
-    document.getElementById('translateBtn').disabled = false;
-    hideCharCounter();
-    hideCookieStatus();
-    showAlert('Translation stopped by user.', 'warning');
-    resetSteps();
-  });
-
-  document.getElementById('downloadBtn').addEventListener('click', () => {
-    const baseName = (currentFile?.name || 'translation').replace(/\.(pdf|xlsx|xls|pptx)$/i, '');
-    if (currentFileType === 'excel' && lastTranslatedExcelBytes) {
-      triggerExcelDownload(lastTranslatedExcelBytes, `${baseName}_translated.xlsx`);
-    } else if (currentFileType === 'pptx' && lastTranslatedPptxBytes) {
-      triggerPptxDownload(lastTranslatedPptxBytes, `${baseName}_translated.pptx`);
-    } else if (lastTranslatedPdfBytes) {
-      triggerPdfDownload(lastTranslatedPdfBytes, `${baseName}_translated.pdf`);
-    }
-  });
+  // Translation execution lives in background.js, kicked off from the
+  // popup's Documents tab. This page is upload + history only.
 
   document.getElementById('clearHistoryBtn').addEventListener('click', () => {
     if (confirm('Clear all translation history?')) {
@@ -189,9 +115,6 @@ async function handleFileSelected(file) {
   currentDocId = null;
   extractedText = '';
   extractedPageCount = 0;
-  lastTranslatedPdfBytes = null;
-  lastTranslatedExcelBytes = null;
-  lastTranslatedPptxBytes = null;
 
   applyFileTypeUi(fileType);
   document.getElementById('fileName').textContent = file.name;
@@ -199,12 +122,9 @@ async function handleFileSelected(file) {
   document.getElementById('fileInfo').classList.remove('d-none');
   document.getElementById('pageCountInfo').classList.add('d-none');
   document.getElementById('charCountInfo').classList.add('d-none');
-  document.getElementById('downloadBtn').classList.add('d-none');
-  document.getElementById('translateBtn').disabled = true;
+  hidePopupHandoff();
   clearAlert();
   resetSteps();
-  hideCharCounter();
-  hideCookieStatus();
 
   document.getElementById('progressSection').classList.remove('d-none');
   setStep('extract', 'active');
@@ -226,11 +146,10 @@ async function handleFileSelected(file) {
       `Ready — ${unitLabelFor(fileType, result.pageCount)}, ` +
         `${result.text.length.toLocaleString()} characters`,
     );
-    document.getElementById('translateBtn').disabled = false;
 
     // Mirror the upload to the shared pending-documents store so it shows up
-    // in the popup. The popup can then start translation in the service
-    // worker without forcing the user to come back to this tab.
+    // in the popup. The popup → Documents tab is the only place that can
+    // start translation now.
     currentDocId = makeDocId();
     await upsertPendingDocument({
       id: currentDocId,
@@ -243,11 +162,24 @@ async function handleFileSelected(file) {
       charsTranslated: 0,
       createdAt: new Date().toISOString(),
     });
+    showPopupHandoff();
   } catch (err) {
     setStep('extract', 'error');
     updateProgress(0, 'Extraction failed');
     showAlert('Could not read ' + humanFileType(fileType) + ': ' + err.message, 'danger');
   }
+}
+
+// Show / hide the "go run this in the popup" notice that replaces the old
+// in-page Translate button as the call-to-action.
+function showPopupHandoff() {
+  const el = document.getElementById('popupHandoff');
+  if (el) el.classList.remove('d-none');
+}
+
+function hidePopupHandoff() {
+  const el = document.getElementById('popupHandoff');
+  if (el) el.classList.add('d-none');
 }
 
 // ─── pendingDocuments mirror (shared with popup + background) ────────────────
@@ -266,17 +198,6 @@ function upsertPendingDocument(doc) {
       const next = pendingDocuments.filter((d) => d.id !== doc.id);
       next.push(doc);
       chrome.storage.local.set({ pendingDocuments: next }, resolve);
-    });
-  });
-}
-
-function removePendingDocument(docId) {
-  return new Promise((resolve) => {
-    chrome.storage.local.get({ pendingDocuments: [] }, ({ pendingDocuments }) => {
-      chrome.storage.local.set(
-        { pendingDocuments: pendingDocuments.filter((d) => d.id !== docId) },
-        resolve,
-      );
     });
   });
 }
@@ -306,14 +227,11 @@ function extractTextForType(fileType, file) {
   return extractTextFromPDF(file);
 }
 
-// Update file-type icon, badge, labels, and step text for the current file.
+// Update file-type icon, badge, and the page-count label for the current file.
 function applyFileTypeUi(fileType) {
   const icon = document.getElementById('fileTypeIcon');
   const badge = document.getElementById('fileTypeBadge');
   const pageLabel = document.getElementById('pageCountLabel');
-  const stepGenLabel = document.getElementById('step-generate-label');
-  const translateLabel = document.getElementById('translateBtnLabel');
-  const downloadLabel = document.getElementById('downloadBtnLabel');
 
   if (fileType === 'excel') {
     if (icon) icon.className = 'bi bi-file-earmark-spreadsheet-fill text-success fs-5';
@@ -322,9 +240,6 @@ function applyFileTypeUi(fileType) {
       badge.textContent = 'EXCEL';
     }
     if (pageLabel) pageLabel.textContent = 'Sheets';
-    if (stepGenLabel) stepGenLabel.textContent = 'Generate Excel';
-    if (translateLabel) translateLabel.textContent = 'Translate Excel';
-    if (downloadLabel) downloadLabel.textContent = 'Download Translated Excel';
   } else if (fileType === 'pptx') {
     if (icon) icon.className = 'bi bi-file-earmark-slides-fill text-warning fs-5';
     if (badge) {
@@ -332,9 +247,6 @@ function applyFileTypeUi(fileType) {
       badge.textContent = 'PPTX';
     }
     if (pageLabel) pageLabel.textContent = 'Slides';
-    if (stepGenLabel) stepGenLabel.textContent = 'Generate PowerPoint';
-    if (translateLabel) translateLabel.textContent = 'Translate PowerPoint';
-    if (downloadLabel) downloadLabel.textContent = 'Download Translated PowerPoint';
   } else {
     if (icon) icon.className = 'bi bi-file-pdf-fill text-danger fs-5';
     if (badge) {
@@ -342,9 +254,6 @@ function applyFileTypeUi(fileType) {
       badge.textContent = 'PDF';
     }
     if (pageLabel) pageLabel.textContent = 'Pages';
-    if (stepGenLabel) stepGenLabel.textContent = 'Generate PDF';
-    if (translateLabel) translateLabel.textContent = 'Translate PDF';
-    if (downloadLabel) downloadLabel.textContent = 'Download Translated PDF';
   }
 }
 
@@ -458,280 +367,6 @@ async function extractTextFromPptx(file) {
     text: slideTexts.join('\n\n'),
     pageCount: slidePaths.length,
   };
-}
-
-// ─── Main pipeline ────────────────────────────────────────────────────────────
-async function startPipeline() {
-  if (!currentFile || !extractedText) return;
-
-  stopRequested = false;
-  lastTranslatedPdfBytes = null;
-  activeBatch = null;
-
-  document.getElementById('translateBtn').disabled = true;
-  document.getElementById('stopBtn').classList.remove('d-none');
-  document.getElementById('downloadBtn').classList.add('d-none');
-  clearAlert();
-
-  try {
-    // ── 1. Find DeepL translator tab ──────────────────────────────────────────
-    const allTabs = await chrome.tabs.query({ url: '*://www.deepl.com/*' });
-    const deeplRegex = /^https:\/\/www\.deepl\.com\/[^/]+\/(translate|write|translator)/;
-    const deeplTab = allTabs.find((t) => deeplRegex.test(t.url));
-    if (!deeplTab) {
-      throw new Error(
-        'No DeepL translator tab found. Open www.deepl.com/translator and try again.',
-      );
-    }
-
-    // ── 2. Cookie cleanup ─────────────────────────────────────────────────────
-    updateProgress(10, 'Cleaning up DeepL cookies…');
-    const removedCount = await cleanDeepLCookies();
-    showCookieStatus(
-      removedCount > 0
-        ? `${removedCount} DeepL cookie${removedCount !== 1 ? 's' : ''} removed`
-        : 'No DeepL cookies found',
-    );
-    cookieMonitorListener = startCookieMonitor(); // delete any new ones during translation
-
-    // ── 3. Split into batches ─────────────────────────────────────────────────
-    const batches = splitIntoBatches(extractedText, BATCH_SIZE);
-    const totalChars = extractedText.length;
-    const totalBatches = batches.length;
-    const translatedParts = [];
-    let completedBatchChars = 0;
-
-    setStep('translate', 'active');
-    showCharCounter(0, totalChars);
-    updateProgress(
-      12,
-      `Starting translation — ${totalBatches} batch${totalBatches !== 1 ? 'es' : ''}…`,
-    );
-
-    // ── 4. Translate each batch sequentially ──────────────────────────────────
-    for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
-      if (stopRequested) break;
-
-      const batch = batches[batchIdx];
-
-      // activeBatch is read by the DEEPL_CHUNK_PROGRESS handler.
-      // requestId is filled in by translateViaDeepL below.
-      activeBatch = {
-        requestId: null,
-        startChars: completedBatchChars,
-        totalChars,
-        batchIdx,
-        batchCount: totalBatches,
-      };
-
-      const startPct = Math.max(12, Math.round((completedBatchChars / totalChars) * 78) + 12);
-      updateProgress(startPct, `Translating — batch ${batchIdx + 1} / ${totalBatches}…`);
-
-      const translated = await translateViaDeepL(batch, deeplTab.id);
-      translatedParts.push(translated);
-      completedBatchChars += batch.length;
-    }
-
-    activeBatch = null;
-    if (stopRequested) return;
-
-    // Mark translate step done; show final char count
-    setStep('translate', 'done');
-    updateCharCounter(totalChars, totalChars);
-    updateProgress(90, generatingMessageFor(currentFileType));
-
-    // ── 5. Generate translated output file ────────────────────────────────────
-    setStep('generate', 'active');
-    const translatedText = translatedParts.join('\n\n');
-    lastTranslatedPdfBytes = null;
-    lastTranslatedExcelBytes = null;
-    lastTranslatedPptxBytes = null;
-    if (currentFileType === 'excel') {
-      lastTranslatedExcelBytes = createTranslatedExcel(translatedText);
-    } else if (currentFileType === 'pptx') {
-      lastTranslatedPptxBytes = await createTranslatedPptx(translatedText);
-    } else {
-      lastTranslatedPdfBytes = await createTranslatedPDF(currentFile.name, translatedText);
-    }
-    setStep('generate', 'done');
-    updateProgress(100, 'Done!');
-
-    // ── 6. Persist to history ─────────────────────────────────────────────────
-    const entry = {
-      id: currentDocId || crypto.randomUUID(),
-      timestamp: new Date().toISOString(),
-      createdAt: new Date().toISOString(),
-      filename: currentFile.name,
-      fileType: currentFileType,
-      pageCount: extractedPageCount,
-      originalText: extractedText,
-      originalLength: extractedText.length,
-      translatedLength: translatedText.length,
-      translatedText,
-    };
-    chrome.storage.local.get({ pdfHistory: [] }, ({ pdfHistory }) => {
-      chrome.storage.local.set({ pdfHistory: [...pdfHistory, entry] }, loadPdfHistory);
-    });
-
-    // Same upload was mirrored into pendingDocuments at extract time so the
-    // popup could see it. It is now in pdfHistory — drop the pending row so
-    // it doesn't appear in both places.
-    if (currentDocId) {
-      removePendingDocument(currentDocId).catch(() => {});
-    }
-
-    document.getElementById('downloadBtn').classList.remove('d-none');
-    showAlert(successHintFor(currentFileType), 'success');
-  } catch (err) {
-    if (!stopRequested) {
-      showAlert(err.message, 'danger');
-      setStep('translate', 'error');
-    }
-  } finally {
-    activeBatch = null;
-    stopCookieMonitor();
-    document.getElementById('stopBtn').classList.add('d-none');
-    document.getElementById('translateBtn').disabled = false;
-  }
-}
-
-// ─── File-type message helpers ────────────────────────────────────────────────
-function generatingMessageFor(fileType) {
-  if (fileType === 'excel') return 'Generating Excel…';
-  if (fileType === 'pptx') return 'Generating PowerPoint…';
-  return 'Generating PDF…';
-}
-
-function successHintFor(fileType) {
-  if (fileType === 'excel') return 'Translation complete! Click "Download Translated Excel" to save.';
-  if (fileType === 'pptx') return 'Translation complete! Click "Download Translated PowerPoint" to save.';
-  return 'Translation complete! Click "Download PDF" to save.';
-}
-
-// ─── DeepL translation (one batch) ───────────────────────────────────────────
-async function translateViaDeepL(text, tabId) {
-  const requestId = `pdf-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-
-  // Link this requestId so the DEEPL_CHUNK_PROGRESS handler can filter messages
-  if (activeBatch) activeBatch.requestId = requestId;
-
-  // Record time before injecting so the verlauf fallback can find the right entry
-  const beforeTime = new Date().toISOString();
-
-  const completionPromise = new Promise((resolve, reject) => {
-    pendingTranslations.set(requestId, resolve);
-    setTimeout(() => {
-      if (pendingTranslations.has(requestId)) {
-        pendingTranslations.delete(requestId);
-        reject(new Error('Batch timed out after 8 minutes. Try with a shorter PDF.'));
-      }
-    }, BATCH_TIMEOUT_MS);
-  });
-
-  // Inject the window.postMessage into the DeepL tab
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    function: (payload, reqId) => {
-      window.postMessage({ type: 'DEEPL_TRANSLATE', payload, requestId: reqId }, '*');
-    },
-    args: [text, requestId],
-  });
-
-  const result = await completionPromise;
-  if (!result.success) throw new Error('Translation was cancelled.');
-
-  // Prefer translatedText carried directly in the completion message (content.js
-  // now includes it), avoiding an extra storage round-trip.
-  if (result.translatedText) return result.translatedText;
-
-  // Fallback: read from verlauf (backward-compat with older content.js versions)
-  return new Promise((resolve, reject) => {
-    chrome.storage.local.get({ verlauf: [] }, ({ verlauf }) => {
-      for (let i = verlauf.length - 1; i >= 0; i--) {
-        if (verlauf[i].timestamp >= beforeTime) return resolve(verlauf[i].translated);
-      }
-      if (verlauf.length > 0) resolve(verlauf[verlauf.length - 1].translated);
-      else reject(new Error('No translation result found in history.'));
-    });
-  });
-}
-
-// ─── Batch splitting ──────────────────────────────────────────────────────────
-// Splits `text` into chunks ≤ `batchSize` chars, preferring paragraph breaks
-// (double newlines) or word boundaries so sentences stay intact.
-function splitIntoBatches(text, batchSize) {
-  if (!text) return [];
-  if (text.length <= batchSize) return [text];
-
-  const batches = [];
-  let start = 0;
-
-  while (start < text.length) {
-    const remaining = text.length - start;
-    if (remaining <= batchSize) {
-      const last = text.slice(start);
-      if (last.trim()) batches.push(last);
-      break;
-    }
-
-    let end = start + batchSize;
-    const half = start + Math.floor(batchSize / 2);
-
-    // Prefer paragraph boundary (double newline) in the second half of the window
-    const paraIdx = text.lastIndexOf('\n\n', end);
-    if (paraIdx >= half) {
-      end = paraIdx + 2; // include the double newline in this batch
-    } else {
-      // Fall back to word boundary (space)
-      const spaceIdx = text.lastIndexOf(' ', end);
-      if (spaceIdx >= half) {
-        end = spaceIdx + 1;
-      }
-      // Last resort: hard-cut exactly at batchSize (never exceeds limit)
-    }
-
-    const chunk = text.slice(start, end);
-    if (chunk.trim()) batches.push(chunk);
-    start = end;
-  }
-
-  return batches;
-}
-
-// ─── Cookie management ────────────────────────────────────────────────────────
-async function cleanDeepLCookies() {
-  const cookies = await chrome.cookies.getAll({ domain: 'deepl.com' });
-  if (!cookies.length) return 0;
-
-  await Promise.all(
-    cookies.map((c) => {
-      const scheme = c.secure ? 'https' : 'http';
-      const host = c.domain.startsWith('.') ? c.domain.slice(1) : c.domain;
-      return chrome.cookies.remove({ url: `${scheme}://${host}${c.path}`, name: c.name });
-    }),
-  );
-
-  return cookies.length;
-}
-
-function startCookieMonitor() {
-  const listener = (info) => {
-    if (info.removed) return; // we only care about newly set/updated cookies
-    if (!info.cookie.domain.includes('deepl')) return;
-    const c = info.cookie;
-    const scheme = c.secure ? 'https' : 'http';
-    const host = c.domain.startsWith('.') ? c.domain.slice(1) : c.domain;
-    chrome.cookies.remove({ url: `${scheme}://${host}${c.path}`, name: c.name });
-  };
-  chrome.cookies.onChanged.addListener(listener);
-  return listener;
-}
-
-function stopCookieMonitor() {
-  if (cookieMonitorListener) {
-    chrome.cookies.onChanged.removeListener(cookieMonitorListener);
-    cookieMonitorListener = null;
-  }
 }
 
 // ─── PDF generation (pdf-lib) ─────────────────────────────────────────────────
@@ -1057,43 +692,6 @@ function updateProgress(percent, label) {
 
   if (labelEl) labelEl.textContent = label;
   if (pctEl)   pctEl.textContent   = percent + '%';
-}
-
-// Character counter
-function showCharCounter(processed, total) {
-  const row = document.getElementById('charsProgressRow');
-  if (row) row.classList.remove('d-none');
-  updateCharCounter(processed, total);
-}
-
-function updateCharCounter(processed, total) {
-  const pEl = document.getElementById('charsProcessed');
-  const tEl = document.getElementById('charsTotal');
-  const pctEl = document.getElementById('charsPct');
-  if (pEl) pEl.textContent = processed.toLocaleString();
-  if (tEl) tEl.textContent = total.toLocaleString();
-  if (pctEl) {
-    const p = total > 0 ? Math.round((processed / total) * 100) : 0;
-    pctEl.textContent = p + '%';
-  }
-}
-
-function hideCharCounter() {
-  const row = document.getElementById('charsProgressRow');
-  if (row) row.classList.add('d-none');
-}
-
-// Cookie status
-function showCookieStatus(msg) {
-  const row = document.getElementById('cookieStatusRow');
-  const txt = document.getElementById('cookieStatusText');
-  if (txt) txt.textContent = msg;
-  if (row) row.classList.remove('d-none');
-}
-
-function hideCookieStatus() {
-  const row = document.getElementById('cookieStatusRow');
-  if (row) row.classList.add('d-none');
 }
 
 function showAlert(message, type) {

@@ -150,27 +150,16 @@
           </div>
         </div>
 
-        <!-- Progress section -->
+        <!-- Progress section — shows the brief extraction phase only.
+             Translation progress lives in the popup. -->
         <div id="progressSection" class="d-none mt-4">
-          <!-- Step indicators -->
           <div class="steps-row">
             <div class="step-item step-idle" id="step-extract">
               <i class="bi bi-circle text-muted"></i>
               <span class="step-label">Extract</span>
             </div>
-            <div class="step-connector"></div>
-            <div class="step-item step-idle" id="step-translate">
-              <i class="bi bi-circle text-muted"></i>
-              <span class="step-label">Translate</span>
-            </div>
-            <div class="step-connector"></div>
-            <div class="step-item step-idle" id="step-generate">
-              <i class="bi bi-circle text-muted"></i>
-              <span class="step-label" id="step-generate-label">Generate PDF</span>
-            </div>
           </div>
 
-          <!-- Progress bar -->
           <div class="progress mb-1" style="height: 8px">
             <div
               id="mainProgressBar"
@@ -186,46 +175,23 @@
             <small id="progressLabel" class="text-muted"></small>
             <small id="progressPercent" class="text-muted fw-semibold">0%</small>
           </div>
-
-          <!-- Character counter — visible during translation -->
-          <div id="charsProgressRow" class="d-none mt-2 d-flex justify-content-between align-items-center">
-            <small class="text-muted">
-              <i class="bi bi-type me-1"></i>
-              <span id="charsProcessed">0</span> / <span id="charsTotal">0</span> characters
-            </small>
-            <small id="charsPct" class="text-primary fw-semibold">0%</small>
-          </div>
-
-          <!-- Cookie status — visible after cleanup step -->
-          <div id="cookieStatusRow" class="d-none mt-1">
-            <small class="text-success">
-              <i class="bi bi-shield-check me-1"></i>
-              <span id="cookieStatusText"></span>
-            </small>
-          </div>
         </div>
 
         <!-- Alert area -->
         <div id="alertArea" class="mt-3"></div>
 
-        <!-- Action buttons -->
-        <div class="d-flex gap-2 mt-3 flex-wrap">
-          <button id="translateBtn" class="btn btn-primary" disabled>
-            <i class="bi bi-translate me-1"></i><span id="translateBtnLabel">Translate</span>
-          </button>
-          <button id="stopBtn" class="btn btn-outline-danger d-none">
-            <i class="bi bi-stop-circle me-1"></i>Stop
-          </button>
-          <button id="downloadBtn" class="btn btn-success d-none">
-            <i class="bi bi-download me-1"></i><span id="downloadBtnLabel">Download Translated File</span>
-          </button>
+        <!-- Popup hand-off — shown once extraction succeeds. Replaces the
+             old in-page Translate / Stop / Download buttons. -->
+        <div id="popupHandoff" class="alert alert-primary d-flex align-items-start gap-3 mt-3 d-none mb-0" role="alert">
+          <i class="bi bi-arrow-up-right-circle-fill fs-4 mt-1"></i>
+          <div class="small">
+            <strong>Ready to translate.</strong>
+            Open <strong>www.deepl.com/translator</strong> (or <strong>/write</strong>) in another tab,
+            then click the extension icon → <strong>Documents</strong> tab and press
+            <strong>Start</strong>. The translation runs in the background while you stay on DeepL —
+            no tab switching, no freezing on large files.
+          </div>
         </div>
-
-        <p class="text-muted small mt-3 mb-0">
-          <i class="bi bi-info-circle me-1"></i>Make sure
-          <strong>www.deepl.com/translator</strong> for translation or <strong>www.deepl.com/write</strong> for writing is open in another tab before
-          clicking Translate.
-        </p>
       </div>
 
       <!-- ── History Section ── -->
