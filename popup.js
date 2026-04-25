@@ -16,9 +16,11 @@ document.addEventListener("DOMContentLoaded", () => {
   let selectedIds = new Set();
   let currentVerlauf = [];
 
-  chrome.storage.local.get({ documents: [] }, function (data) {
-    data.documents.forEach(renderUploadEntry);
-  });
+  // ─── Documents tab: pending uploads (driven by background.js) ──────────────
+  // The popup is transient — translation lives in the service worker. This
+  // block just renders the list and ships START_DOC / STOP_DOC / DELETE_DOC
+  // intents over chrome.runtime.sendMessage.
+  initPendingDocsList();
 
   // ✅ Listen for completion messages from content script
   chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -869,6 +871,251 @@ document.addEventListener("DOMContentLoaded", () => {
 document.getElementById("openFullPageBtn").addEventListener("click", () => {
   chrome.tabs.create({ url: chrome.runtime.getURL("fullpage.html") });
 });
+
+// ─── Documents tab: pending-uploads list ─────────────────────────────────────
+// Renders chrome.storage.local.pendingDocuments inside #pendingDocsList. The
+// service worker (background.js) owns the actual translation loop and writes
+// progress back to storage; we re-render only the rows that change.
+
+function initPendingDocsList() {
+  renderPendingDocsList();
+
+  // Storage is the source of truth — re-render only when pendingDocuments
+  // actually moves, so unrelated storage writes don't re-render the list.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local" || !changes.pendingDocuments) return;
+    const next = changes.pendingDocuments.newValue || [];
+    const prev = changes.pendingDocuments.oldValue || [];
+    if (pendingDocsListChanged(prev, next)) {
+      renderPendingDocsList(next);
+    } else {
+      // Same set of docs, just per-doc field changes (progress / status):
+      // patch the existing rows in place rather than rebuilding the list.
+      next.forEach(updatePendingDocRow);
+    }
+  });
+
+  // Delegated click handler — survives row re-renders.
+  const list = document.getElementById("pendingDocsList");
+  if (!list) return;
+  list.addEventListener("click", (e) => {
+    const btn = e.target.closest("button[data-doc-action]");
+    if (!btn) return;
+    const id = btn.dataset.docId;
+    const action = btn.dataset.docAction;
+    if (action === "start") {
+      chrome.runtime.sendMessage({ type: "START_DOC", id });
+    } else if (action === "stop") {
+      chrome.runtime.sendMessage({ type: "STOP_DOC", id });
+    } else if (action === "delete") {
+      deletePendingDoc(id);
+    }
+  });
+}
+
+// Compare two pendingDocuments arrays by id-set only, so per-row progress
+// updates don't trigger a full re-render.
+function pendingDocsListChanged(prev, next) {
+  if (prev.length !== next.length) return true;
+  const prevIds = prev.map((d) => d.id).sort().join("|");
+  const nextIds = next.map((d) => d.id).sort().join("|");
+  return prevIds !== nextIds;
+}
+
+function renderPendingDocsList(docsArg) {
+  const list = document.getElementById("pendingDocsList");
+  const empty = document.getElementById("pendingDocsEmpty");
+  if (!list) return;
+
+  const apply = (docs) => {
+    if (!docs.length) {
+      list.innerHTML = "";
+      if (empty) empty.classList.remove("d-none");
+      return;
+    }
+    if (empty) empty.classList.add("d-none");
+
+    // Sort newest-first so freshly uploaded files surface at the top.
+    const sorted = [...docs].sort(
+      (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
+    );
+    list.innerHTML = sorted.map(pendingDocRowHtml).join("");
+  };
+
+  if (docsArg) return apply(docsArg);
+  chrome.storage.local.get({ pendingDocuments: [] }, ({ pendingDocuments }) => {
+    apply(pendingDocuments);
+  });
+}
+
+function pendingDocRowHtml(doc) {
+  const meta = popupDocMeta(doc.fileType);
+  const total = (doc.originalText || "").length;
+  const charsTranslated = doc.charsTranslated || 0;
+  const progress = clampPct(doc.progress);
+  const isProcessing = doc.status === "processing";
+  const isError = doc.status === "error";
+  const safeName = sanitizePopupText(doc.filename || "(untitled)");
+  const safeError = sanitizePopupText(doc.errorMessage || "");
+
+  const actionsHtml = isProcessing
+    ? `<button class="btn btn-sm btn-outline-danger" data-doc-action="stop" data-doc-id="${doc.id}" title="Stop">
+         <i class="bi bi-stop-fill"></i>
+       </button>`
+    : `<button class="btn btn-sm btn-success" data-doc-action="start" data-doc-id="${doc.id}" title="Start translation">
+         <i class="bi bi-play-fill"></i>
+       </button>
+       <button class="btn btn-sm btn-outline-secondary" data-doc-action="delete" data-doc-id="${doc.id}" title="Delete">
+         <i class="bi bi-trash"></i>
+       </button>`;
+
+  const statusLabel = isProcessing
+    ? "Translating…"
+    : isError
+    ? "Error"
+    : "Ready";
+
+  return `
+    <div class="card mb-2 shadow-sm pending-doc-row" data-doc-id="${doc.id}">
+      <div class="card-body py-2 px-3">
+        <div class="d-flex align-items-center gap-2">
+          <i class="bi ${meta.iconClass} fs-5 flex-shrink-0"></i>
+          <div style="min-width:0; flex:1;">
+            <div class="fw-semibold text-truncate" title="${safeName}">${safeName}</div>
+            <div class="d-flex align-items-center gap-1 flex-wrap">
+              <span class="badge ${meta.badgeClass}">${meta.badgeText}</span>
+              <small class="text-muted pending-doc-status">${statusLabel}</small>
+            </div>
+          </div>
+          <div class="d-flex gap-1 flex-shrink-0 pending-doc-actions">
+            ${actionsHtml}
+          </div>
+        </div>
+        <div class="progress mt-2" style="height:4px;">
+          <div class="progress-bar ${isError ? "bg-danger" : "bg-primary"} pending-doc-bar"
+               role="progressbar" style="width:${progress}%"></div>
+        </div>
+        <div class="d-flex justify-content-between mt-1">
+          <small class="text-muted pending-doc-chars">
+            ${charsTranslated.toLocaleString()} / ${total.toLocaleString()} characters
+          </small>
+          <small class="text-muted pending-doc-pct">${progress}%</small>
+        </div>
+        ${
+          isError && safeError
+            ? `<small class="text-danger d-block mt-1 pending-doc-error">${safeError}</small>`
+            : `<small class="text-danger d-block mt-1 pending-doc-error d-none"></small>`
+        }
+      </div>
+    </div>`;
+}
+
+// In-place update for a single row — avoids a full list re-render on every
+// progress tick from the service worker.
+function updatePendingDocRow(doc) {
+  const row = document.querySelector(`.pending-doc-row[data-doc-id="${doc.id}"]`);
+  if (!row) {
+    renderPendingDocsList();
+    return;
+  }
+
+  const total = (doc.originalText || "").length;
+  const charsTranslated = doc.charsTranslated || 0;
+  const progress = clampPct(doc.progress);
+  const isProcessing = doc.status === "processing";
+  const isError = doc.status === "error";
+
+  const bar = row.querySelector(".pending-doc-bar");
+  if (bar) {
+    bar.style.width = progress + "%";
+    bar.classList.toggle("bg-danger", isError);
+    bar.classList.toggle("bg-primary", !isError);
+  }
+
+  const charsEl = row.querySelector(".pending-doc-chars");
+  if (charsEl) {
+    charsEl.textContent = `${charsTranslated.toLocaleString()} / ${total.toLocaleString()} characters`;
+  }
+  const pctEl = row.querySelector(".pending-doc-pct");
+  if (pctEl) pctEl.textContent = progress + "%";
+
+  const statusEl = row.querySelector(".pending-doc-status");
+  if (statusEl) {
+    statusEl.textContent = isProcessing ? "Translating…" : isError ? "Error" : "Ready";
+  }
+
+  const errEl = row.querySelector(".pending-doc-error");
+  if (errEl) {
+    if (isError && doc.errorMessage) {
+      errEl.textContent = doc.errorMessage;
+      errEl.classList.remove("d-none");
+    } else {
+      errEl.classList.add("d-none");
+      errEl.textContent = "";
+    }
+  }
+
+  // Swap the action buttons when the running state changes.
+  const actions = row.querySelector(".pending-doc-actions");
+  if (actions) {
+    const showingStop = !!actions.querySelector('[data-doc-action="stop"]');
+    if (showingStop !== isProcessing) {
+      actions.innerHTML = isProcessing
+        ? `<button class="btn btn-sm btn-outline-danger" data-doc-action="stop" data-doc-id="${doc.id}" title="Stop">
+             <i class="bi bi-stop-fill"></i>
+           </button>`
+        : `<button class="btn btn-sm btn-success" data-doc-action="start" data-doc-id="${doc.id}" title="Start translation">
+             <i class="bi bi-play-fill"></i>
+           </button>
+           <button class="btn btn-sm btn-outline-secondary" data-doc-action="delete" data-doc-id="${doc.id}" title="Delete">
+             <i class="bi bi-trash"></i>
+           </button>`;
+    }
+  }
+}
+
+function popupDocMeta(fileType) {
+  if (fileType === "excel") {
+    return {
+      iconClass: "bi-file-earmark-spreadsheet-fill text-success",
+      badgeClass: "bg-success",
+      badgeText: "EXCEL",
+    };
+  }
+  if (fileType === "pptx") {
+    return {
+      iconClass: "bi-file-earmark-slides-fill text-warning",
+      badgeClass: "bg-warning text-dark",
+      badgeText: "PPTX",
+    };
+  }
+  return {
+    iconClass: "bi-file-pdf-fill text-danger",
+    badgeClass: "bg-danger",
+    badgeText: "PDF",
+  };
+}
+
+function clampPct(n) {
+  const v = Number(n) || 0;
+  if (v < 0) return 0;
+  if (v > 100) return 100;
+  return Math.round(v);
+}
+
+function sanitizePopupText(s) {
+  const d = document.createElement("div");
+  d.innerText = String(s || "");
+  return d.innerHTML;
+}
+
+function deletePendingDoc(id) {
+  chrome.storage.local.get({ pendingDocuments: [] }, ({ pendingDocuments }) => {
+    chrome.storage.local.set({
+      pendingDocuments: pendingDocuments.filter((d) => d.id !== id),
+    });
+  });
+}
 
 document.getElementById("bugBtn").addEventListener("click", () => {
   window.open("https://forms.gle/7LNwEpVCbXwunT6s8");

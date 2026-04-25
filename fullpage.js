@@ -17,6 +17,11 @@ const BATCH_TIMEOUT_MS = 8 * 60 * 1_000; // 8 minutes per batch
 // ─── Module-level state ───────────────────────────────────────────────────────
 let currentFile = null;
 let currentFileType = null; // 'pdf' | 'excel' | 'pptx'
+// Stable id assigned at upload time. Used to mirror the document into the
+// shared `pendingDocuments` store so the popup can show it / start it. The
+// id is also used as the pdfHistory entry id on completion (matching the
+// background-driven flow), so the same upload appears once across surfaces.
+let currentDocId = null;
 let extractedText = '';
 let extractedPageCount = 0;
 let lastTranslatedPdfBytes = null;
@@ -181,6 +186,7 @@ async function handleFileSelected(file) {
 
   currentFile = file;
   currentFileType = fileType;
+  currentDocId = null;
   extractedText = '';
   extractedPageCount = 0;
   lastTranslatedPdfBytes = null;
@@ -221,11 +227,58 @@ async function handleFileSelected(file) {
         `${result.text.length.toLocaleString()} characters`,
     );
     document.getElementById('translateBtn').disabled = false;
+
+    // Mirror the upload to the shared pending-documents store so it shows up
+    // in the popup. The popup can then start translation in the service
+    // worker without forcing the user to come back to this tab.
+    currentDocId = makeDocId();
+    await upsertPendingDocument({
+      id: currentDocId,
+      filename: file.name,
+      fileType,
+      originalText: result.text,
+      pageCount: result.pageCount,
+      status: 'idle',
+      progress: 0,
+      charsTranslated: 0,
+      createdAt: new Date().toISOString(),
+    });
   } catch (err) {
     setStep('extract', 'error');
     updateProgress(0, 'Extraction failed');
     showAlert('Could not read ' + humanFileType(fileType) + ': ' + err.message, 'danger');
   }
+}
+
+// ─── pendingDocuments mirror (shared with popup + background) ────────────────
+function makeDocId() {
+  return (
+    'doc-' +
+    Date.now().toString(36) +
+    '-' +
+    Math.random().toString(36).slice(2, 8)
+  );
+}
+
+function upsertPendingDocument(doc) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get({ pendingDocuments: [] }, ({ pendingDocuments }) => {
+      const next = pendingDocuments.filter((d) => d.id !== doc.id);
+      next.push(doc);
+      chrome.storage.local.set({ pendingDocuments: next }, resolve);
+    });
+  });
+}
+
+function removePendingDocument(docId) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get({ pendingDocuments: [] }, ({ pendingDocuments }) => {
+      chrome.storage.local.set(
+        { pendingDocuments: pendingDocuments.filter((d) => d.id !== docId) },
+        resolve,
+      );
+    });
+  });
 }
 
 // ─── File-type label helpers ──────────────────────────────────────────────────
@@ -505,11 +558,13 @@ async function startPipeline() {
 
     // ── 6. Persist to history ─────────────────────────────────────────────────
     const entry = {
-      id: crypto.randomUUID(),
+      id: currentDocId || crypto.randomUUID(),
       timestamp: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
       filename: currentFile.name,
       fileType: currentFileType,
       pageCount: extractedPageCount,
+      originalText: extractedText,
       originalLength: extractedText.length,
       translatedLength: translatedText.length,
       translatedText,
@@ -517,6 +572,13 @@ async function startPipeline() {
     chrome.storage.local.get({ pdfHistory: [] }, ({ pdfHistory }) => {
       chrome.storage.local.set({ pdfHistory: [...pdfHistory, entry] }, loadPdfHistory);
     });
+
+    // Same upload was mirrored into pendingDocuments at extract time so the
+    // popup could see it. It is now in pdfHistory — drop the pending row so
+    // it doesn't appear in both places.
+    if (currentDocId) {
+      removePendingDocument(currentDocId).catch(() => {});
+    }
 
     document.getElementById('downloadBtn').classList.remove('d-none');
     showAlert(successHintFor(currentFileType), 'success');
