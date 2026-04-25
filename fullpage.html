@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <title>DeepL PDF Translator</title>
+    <title>DeepL Document Translator</title>
     <link
       href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css"
       rel="stylesheet"
@@ -105,23 +105,23 @@
       <!-- Header -->
       <div class="page-header d-flex justify-content-between align-items-center">
         <div>
-          <h1><i class="bi bi-file-pdf-fill me-2"></i>DeepL PDF Translator</h1>
-          <p>Upload a PDF → Translate via DeepL → Download translated PDF</p>
+          <h1><i class="bi bi-file-earmark-text-fill me-2"></i>DeepL Document Translator</h1>
+          <p>Upload a PDF or Excel → Translate via DeepL → Download translated file</p>
         </div>
       </div>
 
       <!-- ── Upload Section ── -->
       <div class="page-card" id="uploadSection">
         <h5 class="fw-semibold mb-3">
-          <i class="bi bi-upload text-primary me-2"></i>Upload PDF
+          <i class="bi bi-upload text-primary me-2"></i>Upload Document
         </h5>
 
         <!-- Drop zone -->
         <div id="dropZone">
-          <i class="bi bi-file-pdf fs-1 text-danger mb-2 d-block"></i>
-          <p class="fw-semibold mb-1">Drag &amp; drop a PDF here</p>
-          <p class="text-muted small mb-3">or click to browse your files</p>
-          <input type="file" id="pdfFileInput" accept=".pdf" class="d-none" />
+          <i class="bi bi-file-earmark-arrow-up fs-1 text-primary mb-2 d-block"></i>
+          <p class="fw-semibold mb-1">Drag &amp; drop a PDF or Excel file here</p>
+          <p class="text-muted small mb-3">Supported: .pdf, .xlsx, .xls — or click to browse</p>
+          <input type="file" id="pdfFileInput" accept=".pdf,.xlsx,.xls,application/pdf,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" class="d-none" />
           <button
             class="btn btn-outline-primary btn-sm"
             onclick="document.getElementById('pdfFileInput').click(); event.stopPropagation();"
@@ -133,13 +133,14 @@
         <!-- File info (shown after selection) -->
         <div id="fileInfo" class="d-none mt-3 p-3 rounded-3 border bg-light">
           <div class="d-flex align-items-center gap-2 mb-1">
-            <i class="bi bi-file-pdf-fill text-danger fs-5"></i>
+            <i id="fileTypeIcon" class="bi bi-file-earmark-fill text-secondary fs-5"></i>
             <strong id="fileName" class="text-truncate flex-grow-1"></strong>
+            <span class="badge bg-secondary flex-shrink-0" id="fileTypeBadge">FILE</span>
             <span class="text-muted small flex-shrink-0" id="fileSize"></span>
           </div>
           <div class="d-flex gap-3">
             <span id="pageCountInfo" class="d-none small text-muted">
-              <i class="bi bi-file-text me-1"></i>Pages:
+              <i class="bi bi-file-text me-1"></i><span id="pageCountLabel">Pages</span>:
               <strong id="pageCount"></strong>
             </span>
             <span id="charCountInfo" class="d-none small text-muted">
@@ -165,7 +166,7 @@
             <div class="step-connector"></div>
             <div class="step-item step-idle" id="step-generate">
               <i class="bi bi-circle text-muted"></i>
-              <span class="step-label">Generate PDF</span>
+              <span class="step-label" id="step-generate-label">Generate PDF</span>
             </div>
           </div>
 
@@ -210,13 +211,13 @@
         <!-- Action buttons -->
         <div class="d-flex gap-2 mt-3 flex-wrap">
           <button id="translateBtn" class="btn btn-primary" disabled>
-            <i class="bi bi-translate me-1"></i>Translate PDF
+            <i class="bi bi-translate me-1"></i><span id="translateBtnLabel">Translate</span>
           </button>
           <button id="stopBtn" class="btn btn-outline-danger d-none">
             <i class="bi bi-stop-circle me-1"></i>Stop
           </button>
           <button id="downloadBtn" class="btn btn-success d-none">
-            <i class="bi bi-download me-1"></i>Download Translated PDF
+            <i class="bi bi-download me-1"></i><span id="downloadBtnLabel">Download Translated File</span>
           </button>
         </div>
 
@@ -227,24 +228,25 @@
         </p>
       </div>
 
-      <!-- ── PDF History Section ── -->
+      <!-- ── History Section ── -->
       <div class="page-card" id="historySection">
         <div class="d-flex justify-content-between align-items-center mb-3">
           <h5 class="fw-semibold mb-0">
-            <i class="bi bi-clock-history text-primary me-2"></i>PDF Translation History
+            <i class="bi bi-clock-history text-primary me-2"></i>Translation History
           </h5>
           <button id="clearHistoryBtn" class="btn btn-outline-danger btn-sm d-none">
             <i class="bi bi-trash me-1"></i>Clear All
           </button>
         </div>
         <div id="pdfHistoryList">
-          <p class="text-muted small">No PDF translations yet.</p>
+          <p class="text-muted small">No translations yet.</p>
         </div>
       </div>
     </div>
 
     <script src="js/pdf.min.js"></script>
     <script src="js/pdf-lib.min.js"></script>
+    <script src="js/xlsx.full.min.js"></script>
     <script src="js/bootstrap.bundle.min.js"></script>
     <script src="fullpage.js"></script>
   </body>

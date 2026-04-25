@@ -16,11 +16,35 @@ const BATCH_TIMEOUT_MS = 8 * 60 * 1_000; // 8 minutes per batch
 
 // ─── Module-level state ───────────────────────────────────────────────────────
 let currentFile = null;
+let currentFileType = null; // 'pdf' | 'excel'
 let extractedText = '';
 let extractedPageCount = 0;
 let lastTranslatedPdfBytes = null;
+let lastTranslatedExcelBytes = null;
 let stopRequested = false;
 const pendingTranslations = new Map();
+
+// Sheet separator used when serializing a workbook to plain text.
+// Kept on its own line so split/recombination is reliable.
+const SHEET_SEPARATOR_PREFIX = '---SHEET: ';
+const SHEET_SEPARATOR_SUFFIX = '---';
+
+// ─── File type detection ─────────────────────────────────────────────────────
+function detectFileType(file) {
+  const name = (file.name || '').toLowerCase();
+  if (name.endsWith('.pdf')) return 'pdf';
+  if (name.endsWith('.xlsx') || name.endsWith('.xls')) return 'excel';
+
+  const mime = file.type || '';
+  if (mime === 'application/pdf') return 'pdf';
+  if (
+    mime === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    mime === 'application/vnd.ms-excel'
+  ) {
+    return 'excel';
+  }
+  return null;
+}
 
 // Filled in startPipeline / translateViaDeepL to let the progress handler know
 // which batch is currently in flight.
@@ -82,10 +106,11 @@ function initUploadUI() {
     e.preventDefault();
     dropZone.classList.remove('drag-over');
     const file = e.dataTransfer.files[0];
-    if (file?.type === 'application/pdf') {
+    if (!file) return;
+    if (detectFileType(file)) {
       handleFileSelected(file);
     } else {
-      showAlert('Please drop a PDF file.', 'warning');
+      showAlert('Unsupported file type. Please drop a PDF or Excel (.xlsx, .xls) file.', 'warning');
     }
   });
 
@@ -113,13 +138,16 @@ function initUploadUI() {
   });
 
   document.getElementById('downloadBtn').addEventListener('click', () => {
-    if (!lastTranslatedPdfBytes) return;
-    const baseName = (currentFile?.name || 'translation').replace(/\.pdf$/i, '');
-    triggerPdfDownload(lastTranslatedPdfBytes, `${baseName}_translated.pdf`);
+    const baseName = (currentFile?.name || 'translation').replace(/\.(pdf|xlsx|xls)$/i, '');
+    if (currentFileType === 'excel' && lastTranslatedExcelBytes) {
+      triggerExcelDownload(lastTranslatedExcelBytes, `${baseName}_translated.xlsx`);
+    } else if (lastTranslatedPdfBytes) {
+      triggerPdfDownload(lastTranslatedPdfBytes, `${baseName}_translated.pdf`);
+    }
   });
 
   document.getElementById('clearHistoryBtn').addEventListener('click', () => {
-    if (confirm('Clear all PDF translation history?')) {
+    if (confirm('Clear all translation history?')) {
       chrome.storage.local.set({ pdfHistory: [] }, loadPdfHistory);
     }
   });
@@ -127,11 +155,20 @@ function initUploadUI() {
 
 // ─── File selection & text extraction ────────────────────────────────────────
 async function handleFileSelected(file) {
+  const fileType = detectFileType(file);
+  if (!fileType) {
+    showAlert('Unsupported file type. Please pick a PDF or Excel (.xlsx, .xls) file.', 'warning');
+    return;
+  }
+
   currentFile = file;
+  currentFileType = fileType;
   extractedText = '';
   extractedPageCount = 0;
   lastTranslatedPdfBytes = null;
+  lastTranslatedExcelBytes = null;
 
+  applyFileTypeUi(fileType);
   document.getElementById('fileName').textContent = file.name;
   document.getElementById('fileSize').textContent = formatFileSize(file.size);
   document.getElementById('fileInfo').classList.remove('d-none');
@@ -146,10 +183,11 @@ async function handleFileSelected(file) {
 
   document.getElementById('progressSection').classList.remove('d-none');
   setStep('extract', 'active');
-  updateProgress(5, 'Reading PDF…');
+  updateProgress(5, fileType === 'excel' ? 'Reading Excel file…' : 'Reading PDF…');
 
   try {
-    const result = await extractTextFromPDF(file);
+    const result =
+      fileType === 'excel' ? await extractTextFromExcel(file) : await extractTextFromPDF(file);
     extractedText = result.text;
     extractedPageCount = result.pageCount;
 
@@ -159,16 +197,52 @@ async function handleFileSelected(file) {
     document.getElementById('charCountInfo').classList.remove('d-none');
 
     setStep('extract', 'done');
+    const unitLabel =
+      fileType === 'excel'
+        ? `${result.pageCount} sheet${result.pageCount !== 1 ? 's' : ''}`
+        : `${result.pageCount} page${result.pageCount !== 1 ? 's' : ''}`;
     updateProgress(
       10,
-      `Ready — ${result.pageCount} page${result.pageCount !== 1 ? 's' : ''}, ` +
-        `${result.text.length.toLocaleString()} characters`,
+      `Ready — ${unitLabel}, ${result.text.length.toLocaleString()} characters`,
     );
     document.getElementById('translateBtn').disabled = false;
   } catch (err) {
     setStep('extract', 'error');
     updateProgress(0, 'Extraction failed');
-    showAlert('Could not read PDF: ' + err.message, 'danger');
+    const what = fileType === 'excel' ? 'Excel file' : 'PDF';
+    showAlert('Could not read ' + what + ': ' + err.message, 'danger');
+  }
+}
+
+// Update file-type icon, badge, labels, and step text for the current file.
+function applyFileTypeUi(fileType) {
+  const icon = document.getElementById('fileTypeIcon');
+  const badge = document.getElementById('fileTypeBadge');
+  const pageLabel = document.getElementById('pageCountLabel');
+  const stepGenLabel = document.getElementById('step-generate-label');
+  const translateLabel = document.getElementById('translateBtnLabel');
+  const downloadLabel = document.getElementById('downloadBtnLabel');
+
+  if (fileType === 'excel') {
+    if (icon) icon.className = 'bi bi-file-earmark-spreadsheet-fill text-success fs-5';
+    if (badge) {
+      badge.className = 'badge bg-success flex-shrink-0';
+      badge.textContent = 'EXCEL';
+    }
+    if (pageLabel) pageLabel.textContent = 'Sheets';
+    if (stepGenLabel) stepGenLabel.textContent = 'Generate Excel';
+    if (translateLabel) translateLabel.textContent = 'Translate Excel';
+    if (downloadLabel) downloadLabel.textContent = 'Download Translated Excel';
+  } else {
+    if (icon) icon.className = 'bi bi-file-pdf-fill text-danger fs-5';
+    if (badge) {
+      badge.className = 'badge bg-danger flex-shrink-0';
+      badge.textContent = 'PDF';
+    }
+    if (pageLabel) pageLabel.textContent = 'Pages';
+    if (stepGenLabel) stepGenLabel.textContent = 'Generate PDF';
+    if (translateLabel) translateLabel.textContent = 'Translate PDF';
+    if (downloadLabel) downloadLabel.textContent = 'Download Translated PDF';
   }
 }
 
@@ -190,6 +264,41 @@ async function extractTextFromPDF(file) {
   }
 
   return { text: pageTexts.join('\n\n'), pageCount: pdf.numPages };
+}
+
+// ─── Text extraction: Excel via SheetJS ──────────────────────────────────────
+async function extractTextFromExcel(file) {
+  if (typeof XLSX === 'undefined') {
+    throw new Error('SheetJS library not loaded. Please reload the extension.');
+  }
+
+  const arrayBuffer = await file.arrayBuffer();
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+  const sheetTexts = [];
+  workbook.SheetNames.forEach((sheetName) => {
+    const sheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(sheet, {
+      header: 1,
+      blankrows: false,
+      defval: '',
+      raw: false,
+    });
+
+    const lines = rows
+      .map((row) =>
+        Array.isArray(row) ? row.map((cell) => (cell == null ? '' : String(cell))).join(' | ') : '',
+      )
+      .filter((line) => line.trim() !== '' && line.replace(/\|/g, '').trim() !== '');
+
+    const header = `${SHEET_SEPARATOR_PREFIX}${sheetName}${SHEET_SEPARATOR_SUFFIX}`;
+    sheetTexts.push(header + '\n' + lines.join('\n'));
+  });
+
+  return {
+    text: sheetTexts.join('\n\n'),
+    pageCount: workbook.SheetNames.length,
+  };
 }
 
 // ─── Main pipeline ────────────────────────────────────────────────────────────
@@ -270,21 +379,27 @@ async function startPipeline() {
     // Mark translate step done; show final char count
     setStep('translate', 'done');
     updateCharCounter(totalChars, totalChars);
-    updateProgress(90, 'Generating PDF…');
+    updateProgress(90, currentFileType === 'excel' ? 'Generating Excel…' : 'Generating PDF…');
 
-    // ── 5. Generate translated PDF ────────────────────────────────────────────
+    // ── 5. Generate translated output file ────────────────────────────────────
     setStep('generate', 'active');
     const translatedText = translatedParts.join('\n\n');
-    const pdfBytes = await createTranslatedPDF(currentFile.name, translatedText);
+    if (currentFileType === 'excel') {
+      lastTranslatedExcelBytes = createTranslatedExcel(translatedText);
+      lastTranslatedPdfBytes = null;
+    } else {
+      lastTranslatedPdfBytes = await createTranslatedPDF(currentFile.name, translatedText);
+      lastTranslatedExcelBytes = null;
+    }
     setStep('generate', 'done');
     updateProgress(100, 'Done!');
-    lastTranslatedPdfBytes = pdfBytes;
 
-    // ── 6. Persist to PDF history ─────────────────────────────────────────────
+    // ── 6. Persist to history ─────────────────────────────────────────────────
     const entry = {
       id: crypto.randomUUID(),
       timestamp: new Date().toISOString(),
       filename: currentFile.name,
+      fileType: currentFileType,
       pageCount: extractedPageCount,
       originalLength: extractedText.length,
       translatedLength: translatedText.length,
@@ -295,7 +410,11 @@ async function startPipeline() {
     });
 
     document.getElementById('downloadBtn').classList.remove('d-none');
-    showAlert('Translation complete! Click "Download PDF" to save.', 'success');
+    const successHint =
+      currentFileType === 'excel'
+        ? 'Translation complete! Click "Download Translated Excel" to save.'
+        : 'Translation complete! Click "Download PDF" to save.';
+    showAlert(successHint, 'success');
   } catch (err) {
     if (!stopRequested) {
       showAlert(err.message, 'danger');
@@ -506,6 +625,26 @@ async function createTranslatedPDF(originalFilename, text) {
   return await pdfDoc.save();
 }
 
+// ─── Excel generation (SheetJS) ──────────────────────────────────────────────
+// Converts the recombined translated text back into a single sheet:
+// rows split by '\n', columns split by ' | '. Sheet separator markers from
+// extractTextFromExcel pass through as plain rows (MVP — no per-sheet rebuild).
+function createTranslatedExcel(translatedText) {
+  if (typeof XLSX === 'undefined') {
+    throw new Error('SheetJS library not loaded. Please reload the extension.');
+  }
+
+  const lines = translatedText.split('\n');
+  const data = lines.map((line) => (line === '' ? [''] : line.split(' | ')));
+
+  const newWorkbook = XLSX.utils.book_new();
+  const newSheet = XLSX.utils.aoa_to_sheet(data);
+  XLSX.utils.book_append_sheet(newWorkbook, newSheet, 'Translated');
+
+  const out = XLSX.write(newWorkbook, { type: 'array', bookType: 'xlsx' });
+  return new Uint8Array(out);
+}
+
 // ─── History ──────────────────────────────────────────────────────────────────
 function loadPdfHistory() {
   chrome.storage.local.get({ pdfHistory: [] }, ({ pdfHistory }) => {
@@ -513,7 +652,7 @@ function loadPdfHistory() {
     const clearBtn  = document.getElementById('clearHistoryBtn');
 
     if (!pdfHistory.length) {
-      container.innerHTML = '<p class="text-muted small">No PDF translations yet.</p>';
+      container.innerHTML = '<p class="text-muted small">No translations yet.</p>';
       clearBtn.classList.add('d-none');
       return;
     }
@@ -522,15 +661,29 @@ function loadPdfHistory() {
     container.innerHTML = '';
 
     [...pdfHistory].reverse().forEach((entry) => {
+      // Older entries may not have fileType — default to 'pdf' for backward compat.
+      const fileType = entry.fileType || 'pdf';
+      const isExcel = fileType === 'excel';
+      const iconClass = isExcel
+        ? 'bi-file-earmark-spreadsheet-fill text-success'
+        : 'bi-file-pdf-fill text-danger';
+      const badgeClass = isExcel ? 'bg-success' : 'bg-danger';
+      const badgeText = isExcel ? 'EXCEL' : 'PDF';
+      const unitWord = isExcel
+        ? `${entry.pageCount} sheet${entry.pageCount !== 1 ? 's' : ''}`
+        : `${entry.pageCount} page${entry.pageCount !== 1 ? 's' : ''}`;
+      const dlTitle = isExcel ? 'Download translated Excel' : 'Download translated PDF';
+
       const card = document.createElement('div');
       card.className = 'card mb-2 shadow-sm';
       card.innerHTML = `
         <div class="card-body py-2 px-3">
           <div class="d-flex align-items-center gap-2">
-            <i class="bi bi-file-pdf-fill text-danger fs-5 flex-shrink-0"></i>
+            <i class="bi ${iconClass} fs-5 flex-shrink-0"></i>
             <div style="min-width:0; flex:1;">
               <div class="fw-semibold text-truncate" title="${sanitize(entry.filename)}">${sanitize(entry.filename)}</div>
               <small class="text-muted">
+                <span class="badge ${badgeClass} me-1">${badgeText}</span>
                 ${new Date(entry.timestamp).toLocaleString('de-CH', {
   day: '2-digit',
   month: '2-digit',
@@ -538,12 +691,12 @@ function loadPdfHistory() {
   hour: '2-digit',
   minute: '2-digit'
 })} &middot;
-                ${entry.pageCount} page${entry.pageCount !== 1 ? 's' : ''} &middot;
+                ${unitWord} &middot;
                 ${(entry.translatedLength || 0).toLocaleString()} chars
               </small>
             </div>
             <div class="d-flex gap-1 flex-shrink-0">
-              <button class="btn btn-sm btn-outline-primary dl-btn" title="Download translated PDF">
+              <button class="btn btn-sm btn-outline-primary dl-btn" title="${dlTitle}">
                 <i class="bi bi-download"></i>
               </button>
               <button class="btn btn-sm btn-outline-danger del-btn" title="Delete entry">
@@ -557,10 +710,16 @@ function loadPdfHistory() {
         this.disabled = true;
         this.innerHTML = '<span class="spinner-border spinner-border-sm"></span>';
         try {
-          const bytes = await createTranslatedPDF(entry.filename, entry.translatedText);
-          triggerPdfDownload(bytes, entry.filename.replace(/\.pdf$/i, '') + '_translated.pdf');
+          const baseName = entry.filename.replace(/\.(pdf|xlsx|xls)$/i, '');
+          if (isExcel) {
+            const bytes = createTranslatedExcel(entry.translatedText);
+            triggerExcelDownload(bytes, baseName + '_translated.xlsx');
+          } else {
+            const bytes = await createTranslatedPDF(entry.filename, entry.translatedText);
+            triggerPdfDownload(bytes, baseName + '_translated.pdf');
+          }
         } catch (e) {
-          alert('Error generating PDF: ' + e.message);
+          alert('Error generating file: ' + e.message);
         } finally {
           this.disabled = false;
           this.innerHTML = '<i class="bi bi-download"></i>';
@@ -568,7 +727,7 @@ function loadPdfHistory() {
       });
 
       card.querySelector('.del-btn').addEventListener('click', () => {
-        if (confirm('Delete this PDF translation?')) {
+        if (confirm('Delete this translation?')) {
           chrome.storage.local.get({ pdfHistory: [] }, ({ pdfHistory }) => {
             chrome.storage.local.set(
               { pdfHistory: pdfHistory.filter((e) => e.id !== entry.id) },
@@ -586,6 +745,18 @@ function loadPdfHistory() {
 // ─── UI helpers ───────────────────────────────────────────────────────────────
 function triggerPdfDownload(bytes, filename) {
   const blob = new Blob([bytes], { type: 'application/pdf' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 5_000);
+}
+
+function triggerExcelDownload(bytes, filename) {
+  const blob = new Blob([bytes], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
