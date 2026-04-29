@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "DeepL Pro Unlimited – Long Texts Without Limits",
-  "version": "1.0.15",
+  "version": "1.0.17",
   "description": "Translate unlimited long texts with DeepL. Automatically split content into blocks, batch translate, and download results.",
   "permissions": ["scripting", "downloads", "storage", "clipboardRead", "cookies", "tabs"],
   "action": {

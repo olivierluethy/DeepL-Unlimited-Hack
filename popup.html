@@ -594,6 +594,11 @@
 
             <!-- PDF Translation Page -->
             <div class="tab-pane fade" id="pdf" role="tabpanel">
+                <div class="text-center pb-3 px-2">
+                    <button id="openFullPageBtn" class="btn btn-outline-primary btn-sm">
+                        <i class="bi bi-box-arrow-up-right me-1"></i>Open Full Page
+                    </button>
+                </div>
                 <div class="px-2 pt-3 pb-2">
                     <!-- Pending uploads (rendered from chrome.storage.local.pendingDocuments) -->
                     <div id="pendingDocsList" class="mb-3"></div>
@@ -601,11 +606,6 @@
                         <i class="bi bi-inbox fs-3 d-block mb-1 text-secondary"></i>
                         No uploads waiting. Open the full page to add a PDF, Excel, or PowerPoint file.
                     </div>
-                </div>
-                <div class="text-center pb-3 px-2">
-                    <button id="openFullPageBtn" class="btn btn-outline-primary btn-sm">
-                        <i class="bi bi-box-arrow-up-right me-1"></i>Open Full Page
-                    </button>
                 </div>
             </div>
 

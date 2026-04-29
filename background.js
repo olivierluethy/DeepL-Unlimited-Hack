@@ -30,10 +30,17 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (!msg || !msg.type) return;
 
   if (msg.type === 'START_DOC') {
-    startDocumentTranslation(msg.id)
+    startDocumentTranslation(msg.id, { resume: false })
       .then(() => sendResponse({ ok: true }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true; // keep channel open for async response
+  }
+
+  if (msg.type === 'RESUME_DOC') {
+    startDocumentTranslation(msg.id, { resume: true })
+      .then(() => sendResponse({ ok: true }))
+      .catch((err) => sendResponse({ ok: false, error: err.message }));
+    return true;
   }
 
   if (msg.type === 'STOP_DOC') {
@@ -63,48 +70,91 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 });
 
 // ─── Translation orchestration ────────────────────────────────────────────────
-async function startDocumentTranslation(docId) {
+// Fault-tolerant loop. Every batch is a checkpoint: translatedParts +
+// lastProcessedIndex are persisted to chrome.storage.local *after* each
+// successful batch, so a SW restart, a network glitch, or a user-initiated
+// stop never loses already-translated work. The resume path picks up at
+// lastProcessedIndex + 1 and re-uses the stored translatedParts.
+async function startDocumentTranslation(docId, opts = {}) {
+  const { resume = false } = opts;
   const doc = await readPendingDoc(docId);
   if (!doc) throw new Error('Document not found.');
   if (doc.status === 'processing') return; // already running — idempotent
 
   const deeplTab = await findDeepLTab();
   if (!deeplTab) {
-    await updatePendingDoc(docId, {
-      status: 'error',
-      errorMessage: 'Open www.deepl.com/translator in a tab and try again.',
+    await pauseDoc(docId, {
+      pausedReason: 'no_deepl_tab',
+      errorMessage: 'Open www.deepl.com/translator in a tab and click Resume.',
+      currentStep: resume ? 'resume_blocked_no_tab' : 'start_blocked_no_tab',
     });
     throw new Error('No DeepL tab found.');
   }
 
-  // Best-effort cookie cleanup matches the fullpage flow: stops DeepL from
-  // showing the free-tier paywall mid-batch, which would otherwise interrupt
-  // long-running translations.
-  await cleanDeepLCookies().catch(() => {});
+  // First-run cookie cleanup matches the fullpage flow: stops DeepL from
+  // showing the free-tier paywall mid-batch. On resume we skip it to avoid
+  // tripping the paywall again right after the user just cleared it.
+  if (!resume) {
+    await cleanDeepLCookies().catch(() => {});
+  }
 
   const stopFlag = { stopRequested: false };
   stopFlags.set(docId, stopFlag);
 
-  // Reset stale fields so a re-run of a completed doc starts clean.
-  await updatePendingDoc(docId, {
+  const totalChars = (doc.originalText || '').length;
+  const batches = splitIntoBatches(doc.originalText, BATCH_SIZE);
+
+  // Resume from the last persisted checkpoint, or start from scratch.
+  const startIndex = resume && Number.isInteger(doc.lastProcessedIndex)
+    ? Math.max(0, doc.lastProcessedIndex + 1)
+    : 0;
+  const translatedParts = resume && Array.isArray(doc.translatedParts)
+    ? doc.translatedParts.slice()
+    : [];
+  let completedBatchChars = 0;
+  for (let k = 0; k < startIndex && k < batches.length; k++) {
+    completedBatchChars += batches[k].length;
+  }
+
+  // Initial checkpoint. On a fresh start we wipe stale fields so a re-run
+  // of a completed doc begins clean. On resume we keep translatedParts and
+  // lastProcessedIndex untouched.
+  await checkpoint(docId, {
     status: 'processing',
-    progress: 0,
-    charsTranslated: 0,
+    pausedReason: '',
     errorMessage: '',
-    translatedText: '',
-    translatedLength: 0,
-    completedAt: '',
+    progress: pctOf(completedBatchChars, totalChars),
+    charsTranslated: completedBatchChars,
+    processedCharacters: completedBatchChars,
+    totalCharacters: totalChars,
+    currentStep: resume
+      ? `resuming_at_batch_${startIndex}_of_${batches.length}`
+      : `starting_${batches.length}_batches`,
+    ...(resume
+      ? {}
+      : {
+          translatedText: '',
+          translatedLength: 0,
+          completedAt: '',
+          translatedParts: [],
+          lastProcessedIndex: -1,
+        }),
   });
 
   try {
-    const batches = splitIntoBatches(doc.originalText, BATCH_SIZE);
-    const totalChars = doc.originalText.length;
-    const translatedParts = [];
-    let completedBatchChars = 0;
-
-    for (let i = 0; i < batches.length; i++) {
+    for (let i = startIndex; i < batches.length; i++) {
       if (stopFlag.stopRequested) {
-        await updatePendingDoc(docId, { status: 'idle', progress: 0, charsTranslated: 0 });
+        await pauseDoc(docId, {
+          pausedReason: 'user',
+          errorMessage: '',
+          translatedParts,
+          lastProcessedIndex: i - 1,
+          progress: pctOf(completedBatchChars, totalChars),
+          charsTranslated: completedBatchChars,
+          processedCharacters: completedBatchChars,
+          totalCharacters: totalChars,
+          currentStep: `paused_before_batch_${i}`,
+        });
         return;
       }
 
@@ -116,50 +166,81 @@ async function startDocumentTranslation(docId) {
         totalChars,
       });
 
-      const completion = new Promise((resolve, reject) => {
-        pendingResolvers.set(requestId, resolve);
-        setTimeout(() => {
-          if (pendingResolvers.has(requestId)) {
-            pendingResolvers.delete(requestId);
-            reject(new Error('Batch timed out after 8 minutes.'));
-          }
-        }, BATCH_TIMEOUT_MS);
+      await checkpoint(docId, {
+        currentStep: `translating_batch_${i + 1}_of_${batches.length}`,
       });
 
-      // silent: true tells content.js to suppress its per-batch verlauf
-      // entry + toast. The whole document is treated as one logical job:
-      // we aggregate into a single verlauf entry and a single toast in
-      // completeDocument once every batch has succeeded.
-      await chrome.scripting.executeScript({
-        target: { tabId: deeplTab.id },
-        function: (payload, reqId) => {
-          window.postMessage(
-            { type: 'DEEPL_TRANSLATE', payload, requestId: reqId, silent: true },
-            '*',
-          );
-        },
-        args: [batch, requestId],
+      const result = await runBatchOnDeepL({
+        tabId: deeplTab.id,
+        batch,
+        requestId,
       });
-
-      const result = await completion;
       activeBatches.delete(requestId);
 
       if (!result.success) {
         if (stopFlag.stopRequested) {
-          await updatePendingDoc(docId, { status: 'idle', progress: 0, charsTranslated: 0 });
+          await pauseDoc(docId, {
+            pausedReason: 'user',
+            errorMessage: '',
+            translatedParts,
+            lastProcessedIndex: i - 1,
+            progress: pctOf(completedBatchChars, totalChars),
+            charsTranslated: completedBatchChars,
+            processedCharacters: completedBatchChars,
+            totalCharacters: totalChars,
+            currentStep: `paused_during_batch_${i}`,
+          });
           return;
         }
-        throw new Error(result.error || 'Translation cancelled.');
+
+        const reason = result.errorType || 'batch_failed';
+
+        // Char-limit recovery: clear deepl.com cookies via both the
+        // chrome.cookies API (covers HttpOnly) and the in-page cookieStore
+        // script (covers JS-visible cookies). Then pause so the user can
+        // hit Resume — auto-retrying here would re-trip the same paywall.
+        if (reason === 'char_limit') {
+          await cleanDeepLCookies().catch(() => {});
+          await runInPageCookieCleanup(deeplTab.id).catch(() => {});
+        }
+
+        const message =
+          reason === 'char_limit'
+            ? 'DeepL character limit reached. Cookies cleared — click Resume to continue.'
+            : reason === 'timeout'
+              ? 'Batch timed out. Click Resume to retry from the same checkpoint.'
+              : reason === 'dom'
+                ? 'DeepL UI changed unexpectedly. Reload DeepL and click Resume.'
+                : result.error || 'Translation interrupted — click Resume to continue.';
+
+        await pauseDoc(docId, {
+          pausedReason: reason,
+          errorMessage: message,
+          translatedParts,
+          lastProcessedIndex: i - 1,
+          progress: pctOf(completedBatchChars, totalChars),
+          charsTranslated: completedBatchChars,
+          processedCharacters: completedBatchChars,
+          totalCharacters: totalChars,
+          currentStep: `paused_at_batch_${i}_${reason}`,
+        });
+        return;
       }
 
       translatedParts.push(result.translatedText || '');
       completedBatchChars += batch.length;
 
-      // Persist a checkpoint at each batch boundary as well as on every chunk:
-      // chunk-level updates may miss the final tick of a batch.
-      await updatePendingDoc(docId, {
-        progress: Math.min(99, Math.round((completedBatchChars / totalChars) * 100)),
+      // Atomic checkpoint at the batch boundary: this is the durable
+      // resume point. Chunk-level progress is best-effort UI; this row
+      // is what survives a SW shutdown / browser crash.
+      await checkpoint(docId, {
+        progress: pctOf(completedBatchChars, totalChars),
         charsTranslated: completedBatchChars,
+        processedCharacters: completedBatchChars,
+        totalCharacters: totalChars,
+        translatedParts,
+        lastProcessedIndex: i,
+        currentStep: `completed_batch_${i + 1}_of_${batches.length}`,
       });
     }
 
@@ -170,9 +251,16 @@ async function startDocumentTranslation(docId) {
     // user sees for a whole-document translation.
     fireDocCompleteToast(deeplTab.id);
   } catch (err) {
-    await updatePendingDoc(docId, {
-      status: 'error',
-      errorMessage: err.message || 'Translation failed.',
+    // Network blip, scripting.executeScript failure, or batch-timeout
+    // reject. We don't know which batch index has been persisted, so we
+    // just flip status without touching translatedParts/lastProcessedIndex
+    // — the last-good checkpoint is still in storage.
+    const isTimeout = /timed out/i.test(err && err.message || '');
+    await pauseDoc(docId, {
+      pausedReason: isTimeout ? 'timeout' : 'network',
+      errorMessage:
+        (err && err.message) || 'Translation failed. Click Resume to retry.',
+      currentStep: 'paused_unexpected_error',
     });
   } finally {
     stopFlags.delete(docId);
@@ -181,6 +269,98 @@ async function startDocumentTranslation(docId) {
       if (ctx.docId === docId) activeBatches.delete(reqId);
     }
   }
+}
+
+// Sends one batch to the DeepL tab and waits for content.js to signal
+// completion. Resolves with { success, errorType?, error?, translatedText? }
+// — never rejects on an in-page failure, only on a hard 8-minute timeout
+// (which is a network/SW-stall signal worth surfacing to the catch).
+function runBatchOnDeepL({ tabId, batch, requestId }) {
+  return new Promise((resolve, reject) => {
+    pendingResolvers.set(requestId, resolve);
+
+    const timer = setTimeout(() => {
+      if (pendingResolvers.has(requestId)) {
+        pendingResolvers.delete(requestId);
+        reject(new Error('Batch timed out after 8 minutes.'));
+      }
+    }, BATCH_TIMEOUT_MS);
+
+    chrome.scripting
+      .executeScript({
+        target: { tabId },
+        function: (payload, reqId) => {
+          window.postMessage(
+            { type: 'DEEPL_TRANSLATE', payload, requestId: reqId, silent: true },
+            '*',
+          );
+        },
+        args: [batch, requestId],
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        if (pendingResolvers.has(requestId)) {
+          pendingResolvers.delete(requestId);
+        }
+        reject(err);
+      });
+  });
+}
+
+// Stamps every storage write so the popup can show "last updated N seconds
+// ago" and so the persisted shape matches the documented spec
+// (documentId / status / currentStep / lastProcessedIndex / processedCharacters /
+//  totalCharacters / updatedAt).
+function checkpoint(docId, patch) {
+  return updatePendingDoc(docId, {
+    documentId: docId,
+    updatedAt: new Date().toISOString(),
+    ...patch,
+  });
+}
+
+function pauseDoc(docId, patch) {
+  return checkpoint(docId, {
+    status: 'paused',
+    ...patch,
+  });
+}
+
+function pctOf(done, total) {
+  if (!total) return 0;
+  return Math.min(99, Math.round((done / total) * 100));
+}
+
+// In-page cookieStore cleanup. Runs in MAIN world so we get the page's
+// own cookieStore (the isolated content-script world doesn't always
+// expose it). Defensive: cookieStore is only on https + relatively new
+// Chrome, and individual deletes can throw on session/HttpOnly cookies
+// — every per-cookie call is caught so one failure can't abort the rest.
+async function runInPageCookieCleanup(tabId) {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: async () => {
+      try {
+        if (typeof cookieStore === 'undefined') return;
+        const cookies = await cookieStore.getAll();
+        await Promise.all(
+          cookies.map((cookie) =>
+            cookieStore
+              .delete({
+                name: cookie.name,
+                domain: cookie.domain,
+                path: cookie.path,
+              })
+              .catch(() => {}),
+          ),
+        );
+        console.log('[DeepL Unlimited] Removable cookies cleared.');
+      } catch (e) {
+        // Swallow — cookieStore failures must not abort the workflow.
+      }
+    },
+  });
 }
 
 // ─── Storage helpers ──────────────────────────────────────────────────────────

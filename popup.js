@@ -918,6 +918,8 @@ function initPendingDocsList() {
     const action = btn.dataset.docAction;
     if (action === "start") {
       chrome.runtime.sendMessage({ type: "START_DOC", id });
+    } else if (action === "resume") {
+      chrome.runtime.sendMessage({ type: "RESUME_DOC", id });
     } else if (action === "stop") {
       chrome.runtime.sendMessage({ type: "STOP_DOC", id });
     } else if (action === "delete") {
@@ -967,9 +969,16 @@ function pendingDocRowHtml(doc) {
   const charsTranslated = doc.charsTranslated || 0;
   const progress = clampPct(doc.progress);
   const isError = doc.status === "error";
+  const isPaused = doc.status === "paused";
   const isCompleted = doc.status === "completed";
   const safeName = sanitizePopupText(doc.filename || "(untitled)");
   const safeError = sanitizePopupText(doc.errorMessage || "");
+  const showInfoLine = isError || isPaused;
+  const infoClass = isError
+    ? "text-danger"
+    : isPaused
+      ? "text-warning"
+      : "text-danger";
 
   return `
     <div class="card mb-2 shadow-sm pending-doc-row" data-doc-id="${doc.id}">
@@ -980,7 +989,7 @@ function pendingDocRowHtml(doc) {
             <div class="fw-semibold text-truncate" title="${safeName}">${safeName}</div>
             <div class="d-flex align-items-center gap-1 flex-wrap">
               <span class="badge ${meta.badgeClass}">${meta.badgeText}</span>
-              <small class="text-muted pending-doc-status">${pendingDocStatusLabel(doc.status)}</small>
+              <small class="text-muted pending-doc-status">${pendingDocStatusLabel(doc)}</small>
             </div>
           </div>
           <div class="d-flex gap-1 flex-shrink-0 pending-doc-actions" data-rendered-status="${doc.status || "idle"}">
@@ -998,9 +1007,9 @@ function pendingDocRowHtml(doc) {
           <small class="text-muted pending-doc-pct">${progress}%</small>
         </div>
         ${
-          isError && safeError
-            ? `<small class="text-danger d-block mt-1 pending-doc-error">${safeError}</small>`
-            : `<small class="text-danger d-block mt-1 pending-doc-error d-none"></small>`
+          showInfoLine && safeError
+            ? `<small class="${infoClass} d-block mt-1 pending-doc-error">${safeError}</small>`
+            : `<small class="d-block mt-1 pending-doc-error d-none"></small>`
         }
         ${
           isCompleted
@@ -1013,11 +1022,28 @@ function pendingDocRowHtml(doc) {
     </div>`;
 }
 
-// Status text shown next to the type badge in each row.
-function pendingDocStatusLabel(status) {
-  if (status === "processing") return "Translating…";
+// Status text shown next to the type badge in each row. For paused rows
+// the pausedReason informs the suffix so the user knows whether to clear
+// cookies, reopen DeepL, or just hit Resume.
+function pendingDocStatusLabel(doc) {
+  // Back-compat: callers used to pass just doc.status as a string.
+  const status = typeof doc === "string" ? doc : doc && doc.status;
+  const pausedReason = typeof doc === "object" ? doc?.pausedReason : "";
+
+  if (status === "processing") return "Processing…";
   if (status === "completed") return "Completed";
   if (status === "error") return "Error";
+  if (status === "paused") {
+    switch (pausedReason) {
+      case "char_limit": return "Paused — character limit reached";
+      case "timeout": return "Paused — timed out, ready to resume";
+      case "user": return "Paused";
+      case "no_deepl_tab": return "Paused — open DeepL to resume";
+      case "network": return "Paused — network error, ready to resume";
+      case "dom": return "Paused — DeepL UI changed";
+      default: return "Paused — ready to resume";
+    }
+  }
   return "Ready";
 }
 
@@ -1025,17 +1051,27 @@ function pendingDocStatusLabel(status) {
 function pendingDocBarClass(doc) {
   if (doc.status === "error") return "bg-danger";
   if (doc.status === "completed") return "bg-success";
+  if (doc.status === "paused") return "bg-warning";
   return "bg-primary";
 }
 
 // Render the action buttons for one row. Centralised so the initial render
 // and the in-place update path share exactly the same markup. Completed
-// rows get a re-run icon plus Delete; idle/error get Start plus Delete;
-// processing rows show only Stop.
+// rows get a re-run icon plus Delete; paused rows get a prominent Resume
+// (continues from the last batch checkpoint) plus Delete; processing rows
+// show only Stop; idle/error rows get Start plus Delete.
 function pendingDocActionsHtml(doc) {
   if (doc.status === "processing") {
-    return `<button class="btn btn-sm btn-outline-danger" data-doc-action="stop" data-doc-id="${doc.id}" title="Stop">
-              <i class="bi bi-stop-fill"></i>
+    return `<button class="btn btn-sm btn-outline-danger" data-doc-action="stop" data-doc-id="${doc.id}" title="Pause translation">
+              <i class="bi bi-pause-fill"></i>
+            </button>`;
+  }
+  if (doc.status === "paused") {
+    return `<button class="btn btn-sm btn-warning" data-doc-action="resume" data-doc-id="${doc.id}" title="Resume from last checkpoint">
+              <i class="bi bi-play-fill"></i> Resume
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" data-doc-action="delete" data-doc-id="${doc.id}" title="Delete">
+              <i class="bi bi-trash"></i>
             </button>`;
   }
   if (doc.status === "completed") {
@@ -1067,6 +1103,7 @@ function updatePendingDocRow(doc) {
   const charsTranslated = doc.charsTranslated || 0;
   const progress = clampPct(doc.progress);
   const isError = doc.status === "error";
+  const isPaused = doc.status === "paused";
   const isCompleted = doc.status === "completed";
   const status = doc.status || "idle";
 
@@ -1075,7 +1112,8 @@ function updatePendingDocRow(doc) {
     bar.style.width = progress + "%";
     bar.classList.toggle("bg-danger", isError);
     bar.classList.toggle("bg-success", isCompleted);
-    bar.classList.toggle("bg-primary", !isError && !isCompleted);
+    bar.classList.toggle("bg-warning", isPaused);
+    bar.classList.toggle("bg-primary", !isError && !isCompleted && !isPaused);
   }
 
   const charsEl = row.querySelector(".pending-doc-chars");
@@ -1087,16 +1125,18 @@ function updatePendingDocRow(doc) {
 
   const statusEl = row.querySelector(".pending-doc-status");
   if (statusEl) {
-    statusEl.textContent = pendingDocStatusLabel(doc.status);
+    statusEl.textContent = pendingDocStatusLabel(doc);
   }
 
   const errEl = row.querySelector(".pending-doc-error");
   if (errEl) {
-    if (isError && doc.errorMessage) {
+    if ((isError || isPaused) && doc.errorMessage) {
       errEl.textContent = doc.errorMessage;
-      errEl.classList.remove("d-none");
+      errEl.classList.remove("d-none", "text-danger", "text-warning");
+      errEl.classList.add(isPaused ? "text-warning" : "text-danger");
     } else {
       errEl.classList.add("d-none");
+      errEl.classList.remove("text-warning", "text-danger");
       errEl.textContent = "";
     }
   }

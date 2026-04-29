@@ -88,8 +88,16 @@ window.addEventListener("message", async (event) => {
   const chunks = splitText(fullText, maxLength);
   const results = [];
   let cumulativeChars = 0;
+  let failure = null; // { errorType, error } when a chunk aborts the batch
 
   for (let i = 0; i < chunks.length; i++) {
+    // Bail before each chunk if DeepL is showing the paywall — saves us
+    // 30s of waiting on a doomed translation.
+    if (detectDeepLLimit()) {
+      failure = { errorType: "char_limit", error: "DeepL character limit reached." };
+      break;
+    }
+
     // Clear the input field completely before starting new translation
     await clearInputField();
 
@@ -97,8 +105,20 @@ window.addEventListener("message", async (event) => {
     await delay(300);
 
     // Insert text and wait for the COMPLETE translation
-    const translated = await insertAndTranslateWithVerification(chunks[i], i);
-    results.push(translated);
+    const r = await insertAndTranslateWithVerification(chunks[i], i);
+    if (!r.ok) {
+      failure = {
+        errorType: r.errorType || "unknown",
+        error:
+          r.errorType === "char_limit"
+            ? "DeepL character limit reached."
+            : r.errorType === "dom"
+              ? "DeepL UI elements not found."
+              : "Translation timed out.",
+      };
+      break;
+    }
+    results.push(r.text);
     cumulativeChars += chunks[i].length;
 
     // Report per-chunk progress so fullpage.js can drive an accurate char counter
@@ -114,6 +134,21 @@ window.addEventListener("message", async (event) => {
     if (i < chunks.length - 1) {
       await delay(500);
     }
+  }
+
+  // Abort path — the batch is unrecoverable from inside the page. Hand the
+  // failure to background.js / popup so it can pause the document with a
+  // checkpointed lastProcessedIndex and surface a Resume button.
+  if (failure) {
+    chrome.runtime.sendMessage({
+      type: "DEEPL_TRANSLATION_COMPLETE",
+      requestId,
+      success: false,
+      errorType: failure.errorType,
+      error: failure.error,
+      originalLength: fullText.length,
+    }).catch(() => {});
+    return;
   }
 
   const finalText = results.join("\n\n");
@@ -394,7 +429,40 @@ function waitForTargetToClear() {
   });
 }
 
-// Main translation function with verification
+// Heuristic: is DeepL currently blocking us with a paywall / character
+// limit / disabled input? Used both before each chunk (early bail) and
+// when a translation times out empty (to distinguish 'limit' from
+// 'genuinely slow translation').
+function detectDeepLLimit() {
+  const limitSelectors = [
+    '[data-testid="paywall-dialog"]',
+    '[data-testid*="paywall"]',
+    '[data-testid*="limit-reached"]',
+    '[data-testid*="char-limit"]',
+    '[class*="paywall"]',
+    '[class*="limitReached"]',
+    '[class*="LimitReached"]',
+    '[class*="charLimit"]',
+  ];
+  for (const sel of limitSelectors) {
+    if (document.querySelector(sel)) return true;
+  }
+  // The source textbox going read-only / aria-disabled is DeepL's other
+  // signal that the free tier is throttled.
+  const src = document.querySelector(
+    "[data-testid='translator-source-input'] [role='textbox']",
+  );
+  if (src) {
+    if (src.getAttribute("aria-disabled") === "true") return true;
+    if (src.getAttribute("contenteditable") === "false") return true;
+  }
+  return false;
+}
+
+// Main translation function with verification.
+// Returns { ok: true, text } on success or { ok: false, errorType } on
+// failure. errorType is 'dom' (selectors missing), 'char_limit' (paywall
+// detected), or 'timeout' (no stable output after 30s).
 async function insertAndTranslateWithVerification(text, chunkIndex) {
   const sourceInput = document.querySelector(
     "[data-testid='translator-source-input'] [role='textbox']"
@@ -405,13 +473,13 @@ async function insertAndTranslateWithVerification(text, chunkIndex) {
 
   if (!sourceInput || !targetInput) {
     console.error("Could not find DeepL input/output fields");
-    return "";
+    return { ok: false, errorType: "dom", text: "" };
   }
 
   // Store the input text length for validation
   const inputLength = text.length;
   const inputWordCount = text.split(/\s+/).length;
-  
+
   // Insert the text
   sourceInput.focus();
   sourceInput.innerText = "";
@@ -422,43 +490,57 @@ async function insertAndTranslateWithVerification(text, chunkIndex) {
 
   // Wait for translation with stability check
   const result = await waitForStableTranslation(inputLength, inputWordCount, chunkIndex);
-  
-  console.log(`[Chunk ${chunkIndex}] Got translation (${result.length} chars)`);
-  
+
+  if (result.ok) {
+    console.log(`[Chunk ${chunkIndex}] Got translation (${result.text.length} chars)`);
+  } else {
+    console.warn(`[Chunk ${chunkIndex}] Failed: ${result.errorType}`);
+  }
+
   return result;
 }
 
-// Wait for translation to be complete AND stable (not changing anymore)
+// Wait for translation to be complete AND stable (not changing anymore).
+// Resolves with { ok, text, errorType? } so the caller can distinguish a
+// genuine empty-output timeout from a paywall hit.
 function waitForStableTranslation(inputLength, inputWordCount, chunkIndex) {
   return new Promise((resolve) => {
     const targetInput = document.querySelector(
       "[data-testid='translator-target-input'] [role='textbox']"
     );
-    
+
     let lastText = "";
     let stableCount = 0;
     let attempts = 0;
     const maxAttempts = 60; // 30 seconds max (60 * 500ms)
     const requiredStableChecks = 3; // Text must be unchanged for 3 consecutive checks
-    
+
     const checkInterval = setInterval(() => {
+      // Fast-fail: paywall / char-limit detected mid-wait. No reason to
+      // burn the rest of the 30s window.
+      if (detectDeepLLimit()) {
+        clearInterval(checkInterval);
+        resolve({ ok: false, text: "", errorType: "char_limit" });
+        return;
+      }
+
       const currentText = targetInput ? targetInput.innerText.trim() : "";
       attempts++;
-      
+
       // Check if text has stabilized (same as last check)
       if (currentText === lastText && currentText.length > 0) {
         stableCount++;
       } else {
         stableCount = 0; // Reset if text changed
       }
-      
+
       lastText = currentText;
-      
+
       // Log progress for debugging
       if (attempts % 4 === 0) {
         console.log(`[Chunk ${chunkIndex}] Waiting... (${currentText.length} chars, stable: ${stableCount}/${requiredStableChecks})`);
       }
-      
+
       // Success conditions:
       // 1. Text is not empty
       // 2. Text has been stable for required number of checks
@@ -466,23 +548,34 @@ function waitForStableTranslation(inputLength, inputWordCount, chunkIndex) {
       const isStable = stableCount >= requiredStableChecks;
       const isNotEmpty = currentText.length > 0;
       const isReasonableLength = currentText.length >= Math.min(inputLength * 0.3, 10);
-      
+
       if (isNotEmpty && isStable && isReasonableLength) {
         clearInterval(checkInterval);
         // Additional small buffer to ensure DeepL is fully done
         setTimeout(() => {
           // Read the text ONE MORE TIME to get the absolute final version
           const finalText = targetInput ? targetInput.innerText.trim() : "";
-          resolve(finalText);
+          resolve({ ok: true, text: finalText });
         }, 500);
         return;
       }
-      
-      // Timeout fallback
+
+      // Timeout fallback. If the output never appeared at all, treat it
+      // as a char-limit hit (paywall detection may have missed the
+      // selector); if we got *something* but it never stabilised, the
+      // safer call is 'timeout' so the user can just retry.
       if (attempts >= maxAttempts) {
         clearInterval(checkInterval);
-        console.warn(`[Chunk ${chunkIndex}] Timeout reached, using current text`);
-        resolve(currentText);
+        console.warn(`[Chunk ${chunkIndex}] Timeout reached, current=${currentText.length} chars`);
+        if (currentText.length === 0) {
+          resolve({
+            ok: false,
+            text: "",
+            errorType: detectDeepLLimit() ? "char_limit" : "char_limit",
+          });
+        } else {
+          resolve({ ok: false, text: currentText, errorType: "timeout" });
+        }
       }
     }, 500);
   });
