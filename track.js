@@ -1,14 +1,13 @@
 // ============================================
-// track.js — page-side analytics helper (popup, options, consent, upload page)
+// track.js — page-side analytics helper (popup, options, upload page)
 // ============================================
-// Loaded via a <script> tag on every extension page that needs to emit
-// events. Forwards everything to the service worker (analytics.js) over
-// chrome.runtime.sendMessage. The service worker is the single place
-// that decides whether an event is allowed to leave the device.
+// Anonymous usage analytics — see privacy policy at <PRIVACY_URL>.
+// No translated text, no file contents, no DOM data from DeepL's UI is
+// ever transmitted. Only feature-usage metadata.
 //
-// Exposes window.track / window.setConsent / window.getConsent /
-// window.bucketChars so callers don't have to know about the message
-// protocol.
+// Forwards every event to the service worker (analytics.js) over
+// chrome.runtime.sendMessage. Exposes window.track and window.bucketChars
+// so callers don't have to know about the message protocol.
 
 (function () {
   "use strict";
@@ -27,22 +26,14 @@
     }
   }
 
-  function setConsent(value) {
-    return chrome.runtime.sendMessage({
-      type: "analytics:setConsent",
-      value,
-    });
-  }
-
-  function getConsent() {
+  function getDistinctId() {
     return chrome.runtime
-      .sendMessage({ type: "analytics:getConsent" })
-      .then((res) => (res && res.value) || null)
+      .sendMessage({ type: "analytics:getDistinctId" })
+      .then((res) => (res && res.id) || null)
       .catch(() => null);
   }
 
-  // Shared bucket function so popup / loop / upload all report the same
-  // distribution. Keep in sync with bucketChars() in background.js.
+  // Keep in sync with bucketChars() in background.js.
   function bucketChars(n) {
     if (n < 500) return "0-500";
     if (n < 2000) return "500-2k";
@@ -54,8 +45,7 @@
 
   if (typeof window !== "undefined") {
     window.track = track;
-    window.setConsent = setConsent;
-    window.getConsent = getConsent;
+    window.getDistinctId = getDistinctId;
     window.bucketChars = bucketChars;
   }
 })();

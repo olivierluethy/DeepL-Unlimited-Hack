@@ -21,9 +21,32 @@
                 border-radius: 12px;
                 box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
             }
-            .form-check-input:checked {
-                background-color: #0d6efd;
-                border-color: #0d6efd;
+            .pill-list li {
+                margin-bottom: 6px;
+            }
+            .pill-list .bi {
+                margin-right: 8px;
+            }
+            .ok {
+                color: #198754;
+            }
+            .no {
+                color: #dc3545;
+            }
+            .id-row {
+                display: flex;
+                gap: 8px;
+                align-items: center;
+            }
+            .id-value {
+                font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+                font-size: 0.9rem;
+                background: #f1f3f5;
+                padding: 8px 12px;
+                border-radius: 6px;
+                flex-grow: 1;
+                user-select: all;
+                word-break: break-all;
             }
         </style>
     </head>
@@ -34,19 +57,58 @@
             </h1>
             <p class="text-muted mb-4">DeepL Pro Unlimited – Long Texts Without Limits</p>
 
-            <h2 class="h6 fw-semibold mb-2">Anonymous usage data</h2>
-            <p class="small text-muted mb-3">
-                Helps us see which features are useful and which aren't. We never collect translated text, files, or
-                personal data. Data is stored on EU servers (PostHog).
-                <a id="privacyLink" href="#" target="_blank" rel="noopener">Privacy policy</a>.
+            <h2 class="h5 fw-semibold mb-2">
+                <i class="bi bi-shield-check me-1"></i>About usage data
+            </h2>
+            <p class="mb-3">
+                To understand which features matter and which don't, this extension sends anonymous usage data to
+                <strong>PostHog</strong> on EU servers (<code>eu.i.posthog.com</code>). The data is tied to a random ID
+                generated on this device — it cannot be linked to your name, email, or DeepL account.
             </p>
-            <div class="form-check form-switch fs-5 mb-2">
-                <input class="form-check-input" type="checkbox" role="switch" id="analyticsToggle" />
-                <label class="form-check-label small" for="analyticsToggle" id="analyticsToggleLabel">
-                    Loading…
-                </label>
+
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <h3 class="h6 fw-semibold mb-2">What is collected</h3>
+                    <ul class="pill-list list-unstyled small">
+                        <li><i class="bi bi-check-circle ok"></i>Which buttons / tabs you use</li>
+                        <li><i class="bi bi-check-circle ok"></i>Character-count buckets (e.g. "2k–5k")</li>
+                        <li><i class="bi bi-check-circle ok"></i>Translation success / failure type</li>
+                        <li><i class="bi bi-check-circle ok"></i>Extension version, browser interface language</li>
+                        <li><i class="bi bi-check-circle ok"></i>The random anonymous ID below</li>
+                    </ul>
+                </div>
+                <div class="col-md-6">
+                    <h3 class="h6 fw-semibold mb-2">What is never collected</h3>
+                    <ul class="pill-list list-unstyled small">
+                        <li><i class="bi bi-x-circle no"></i>The text you translate, paste, or copy</li>
+                        <li><i class="bi bi-x-circle no"></i>Your IP address (dropped server-side)</li>
+                        <li><i class="bi bi-x-circle no"></i>Browsing history</li>
+                        <li><i class="bi bi-x-circle no"></i>Email, name, or account data</li>
+                        <li><i class="bi bi-x-circle no"></i>PDF / Word / Excel / PowerPoint contents</li>
+                    </ul>
+                </div>
             </div>
-            <div id="status" class="small text-success" aria-live="polite"></div>
+
+            <hr class="my-4" />
+
+            <h2 class="h6 fw-semibold mb-2">
+                <i class="bi bi-fingerprint me-1"></i>Your anonymous ID
+            </h2>
+            <p class="small text-muted mb-2">
+                Provide this ID if you want your data deleted (GDPR / Swiss FADP Article 17, right to erasure).
+            </p>
+            <div class="id-row mb-3">
+                <code id="distinctId" class="id-value">Loading…</code>
+                <button id="copyIdBtn" class="btn btn-outline-secondary btn-sm" type="button" title="Copy">
+                    <i class="bi bi-clipboard"></i>
+                </button>
+            </div>
+
+            <p class="small text-muted mb-0">
+                <i class="bi bi-link-45deg me-1"></i>
+                <a id="privacyLink" href="#" target="_blank" rel="noopener">Privacy policy</a>
+            </p>
+            <div id="status" class="small text-success mt-2" aria-live="polite"></div>
         </div>
 
         <script src="track.js"></script>

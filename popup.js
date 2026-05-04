@@ -9,8 +9,9 @@ document.addEventListener("DOMContentLoaded", () => {
   const magicFixBtn = document.getElementById("magicFixBtn");
   const swapBtn = document.getElementById("swapBtn");
 
-  // Anonymous usage analytics — no-ops when consent is denied.
-  // window.track / window.bucketChars come from track.js (loaded earlier).
+  // Anonymous usage analytics. See options page / privacy policy for the
+  // full list of what is and isn't collected. window.track and
+  // window.bucketChars come from track.js (loaded earlier).
   if (window.track) window.track("popup_opened");
 
   const settingsBtn = document.getElementById("settingsBtn");

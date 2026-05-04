@@ -20,16 +20,6 @@ self.analytics.initAnalytics();
 
 chrome.runtime.setUninstallURL("https://forms.gle/cFNf17u5CxSQ8d6t6");
 
-// Open the consent dialog in a new tab on first install. On version
-// updates we silently flush whatever's queued — the user already chose.
-chrome.runtime.onInstalled.addListener((details) => {
-  if (details.reason === 'install') {
-    chrome.tabs.create({ url: chrome.runtime.getURL('consent.html') });
-  } else {
-    self.analytics.flush();
-  }
-});
-
 // Char-count buckets used for analytics props. Mirrors track.js so the
 // popup-side and SW-side numbers line up in PostHog dashboards.
 function bucketChars(n) {

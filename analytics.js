@@ -1,29 +1,25 @@
 // ============================================
 // analytics.js — PostHog client for Chrome MV3 service worker
 // ============================================
-// Loaded into background.js via importScripts(). Exposes self.analytics
-// as the integration surface; other contexts (popup, options, content
-// scripts on extension pages) talk to it via chrome.runtime.sendMessage
-// with type "analytics:*". See track.js for the page-side helper.
+// Anonymous usage analytics — see privacy policy at <PRIVACY_URL>.
+// No translated text, no file contents, no contact data, no DOM text
+// from DeepL's UI is ever transmitted. Only feature-usage metadata
+// (button clicks, error types, character-count buckets, durations).
 //
-// Hard rules enforced here:
-//   - No event leaves the device unless consent === "granted".
-//   - Translated text never enters this module (callers send metadata).
-//   - The queue is bounded (MAX_QUEUE_SIZE) so a long offline stretch
-//     can't grow chrome.storage indefinitely.
+// Loaded into background.js via importScripts(). Exposes self.analytics
+// as the integration surface; pages talk to it via
+// chrome.runtime.sendMessage with type "analytics:*". See track.js for
+// the page-side helper.
 
 (function () {
   "use strict";
 
-  // TODO: replace before publishing — see README/Web Store dashboard.
   const POSTHOG_API_KEY = "phc_vdh5V2RdTvv78E778stRjmNqXf7LNwEEhPhHteafYvLG";
   const POSTHOG_HOST = "https://eu.i.posthog.com";
 
   const STORAGE_KEYS = {
     DISTINCT_ID: "analytics_distinct_id",
-    CONSENT: "analytics_consent",
     QUEUE: "analytics_queue",
-    EXTENSION_VERSION: "analytics_last_version",
   };
 
   const FLUSH_INTERVAL_SECONDS = 30;
@@ -44,44 +40,7 @@
     return newId;
   }
 
-  async function getConsent() {
-    const { [STORAGE_KEYS.CONSENT]: consent } = await chrome.storage.local.get(
-      STORAGE_KEYS.CONSENT,
-    );
-    return consent;
-  }
-
-  async function setConsent(value) {
-    await chrome.storage.local.set({ [STORAGE_KEYS.CONSENT]: value });
-
-    if (value === "granted") {
-      // First-grant emits an install/update marker so we can age the
-      // user-base in PostHog. Skipped on every subsequent grant flip.
-      const { [STORAGE_KEYS.EXTENSION_VERSION]: lastVersion } =
-        await chrome.storage.local.get(STORAGE_KEYS.EXTENSION_VERSION);
-      const currentVersion = chrome.runtime.getManifest().version;
-      if (!lastVersion) {
-        await capture("extension_installed", { version: currentVersion });
-      } else if (lastVersion !== currentVersion) {
-        await capture("extension_updated", {
-          from: lastVersion,
-          to: currentVersion,
-        });
-      }
-      await chrome.storage.local.set({
-        [STORAGE_KEYS.EXTENSION_VERSION]: currentVersion,
-      });
-      await flush();
-    } else {
-      // Withdrawal of consent: drop everything that hasn't shipped yet.
-      await chrome.storage.local.set({ [STORAGE_KEYS.QUEUE]: [] });
-    }
-  }
-
   async function capture(eventName, properties = {}) {
-    const consent = await getConsent();
-    if (consent !== "granted") return;
-
     const distinctId = await getDistinctId();
     const manifest = chrome.runtime.getManifest();
 
@@ -109,9 +68,6 @@
   }
 
   async function flush() {
-    const consent = await getConsent();
-    if (consent !== "granted") return;
-
     const { [STORAGE_KEYS.QUEUE]: queue = [] } = await chrome.storage.local.get(
       STORAGE_KEYS.QUEUE,
     );
@@ -161,12 +117,8 @@
         );
         return true;
       }
-      if (msg.type === "analytics:setConsent") {
-        setConsent(msg.value).then(() => sendResponse({ ok: true }));
-        return true;
-      }
-      if (msg.type === "analytics:getConsent") {
-        getConsent().then((value) => sendResponse({ value }));
+      if (msg.type === "analytics:getDistinctId") {
+        getDistinctId().then((id) => sendResponse({ id }));
         return true;
       }
       if (msg.type === "analytics:flush") {
@@ -176,14 +128,26 @@
     });
 
     chrome.runtime.onStartup.addListener(() => flush());
+
+    // Install / update markers. previousVersion comes from Chrome's own
+    // event payload, so we don't need to track it ourselves in storage.
+    chrome.runtime.onInstalled.addListener((details) => {
+      const currentVersion = chrome.runtime.getManifest().version;
+      if (details.reason === "install") {
+        capture("extension_installed", { version: currentVersion }).then(flush);
+      } else if (details.reason === "update") {
+        capture("extension_updated", {
+          from: details.previousVersion || "unknown",
+          to: currentVersion,
+        }).then(flush);
+      }
+    });
   }
 
   self.analytics = {
     initAnalytics,
     capture,
     flush,
-    setConsent,
-    getConsent,
     getDistinctId,
   };
 })();
