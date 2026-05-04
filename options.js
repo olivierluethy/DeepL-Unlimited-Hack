@@ -5,7 +5,7 @@
 document.addEventListener("DOMContentLoaded", async () => {
   // TODO: replace before publishing — keep in sync with consent.js.
   const PRIVACY_POLICY_URL =
-    "<<< paste your real URL here, or use a placeholder you'll update >>>";
+    "https://github.com/BaskLash/LongDL/blob/main/privacy-policy";
 
   const privacyLink = document.getElementById("privacyLink");
   if (privacyLink) privacyLink.href = PRIVACY_POLICY_URL;

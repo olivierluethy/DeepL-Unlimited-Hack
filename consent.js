@@ -7,7 +7,7 @@ document.addEventListener("DOMContentLoaded", () => {
   // shown on the consent page and the options page. If left as a
   // placeholder the link still renders, just nowhere useful.
   const PRIVACY_POLICY_URL =
-    "<<< paste your real URL here, or use a placeholder you'll update >>>";
+    "https://github.com/BaskLash/LongDL/blob/main/privacy-policy";
 
   const privacyLink = document.getElementById("privacyLink");
   if (privacyLink) privacyLink.href = PRIVACY_POLICY_URL;
