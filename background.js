@@ -11,7 +11,43 @@
 // both surfaces, fullpage.js removes its document from pendingDocuments
 // on completion. Both flows reuse content.js's DEEPL_TRANSLATE protocol.
 
+// Anonymous usage analytics. Loaded as a classic script so it can hang
+// off `self.analytics` and we don't have to flip the SW to module type.
+// Listeners (alarm, onMessage for analytics:*) register inside
+// initAnalytics() at top level — safe under MV3 SW restart semantics.
+importScripts('analytics.js');
+self.analytics.initAnalytics();
+
 chrome.runtime.setUninstallURL("https://forms.gle/cFNf17u5CxSQ8d6t6");
+
+// Open the consent dialog in a new tab on first install. On version
+// updates we silently flush whatever's queued — the user already chose.
+chrome.runtime.onInstalled.addListener((details) => {
+  if (details.reason === 'install') {
+    chrome.tabs.create({ url: chrome.runtime.getURL('consent.html') });
+  } else {
+    self.analytics.flush();
+  }
+});
+
+// Char-count buckets used for analytics props. Mirrors track.js so the
+// popup-side and SW-side numbers line up in PostHog dashboards.
+function bucketChars(n) {
+  if (n < 500) return '0-500';
+  if (n < 2000) return '500-2k';
+  if (n < 5000) return '2k-5k';
+  if (n < 10000) return '5k-10k';
+  if (n < 25000) return '10k-25k';
+  return '25k+';
+}
+
+function classifyError(err) {
+  const msg = (err && err.message ? err.message : String(err || '')).toLowerCase();
+  if (msg.includes('rate') || msg.includes('429')) return 'rate_limited';
+  if (msg.includes('network') || msg.includes('fetch')) return 'network';
+  if (msg.includes('timeout') || msg.includes('timed out')) return 'timeout';
+  return 'other';
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const BATCH_SIZE = 8_000;
@@ -46,6 +82,9 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'STOP_DOC') {
     const flag = stopFlags.get(msg.id);
     if (flag) flag.stopRequested = true;
+    self.analytics.capture('document_translation_stopped_by_user', {
+      run_id: flag ? flag.runId : null,
+    });
     sendResponse({ ok: true });
     return false;
   }
@@ -81,12 +120,36 @@ async function startDocumentTranslation(docId, opts = {}) {
   if (!doc) throw new Error('Document not found.');
   if (doc.status === 'processing') return; // already running — idempotent
 
+  // Synthetic per-run ID so failure/completion events correlate with the
+  // start event in PostHog, without leaking the real docId.
+  const runId = crypto.randomUUID();
+  const runStartedAt = Date.now();
+  const totalCharsForAnalytics = (doc.originalText || '').length;
+  const batchCountForAnalytics = splitIntoBatches(doc.originalText, BATCH_SIZE).length;
+
+  self.analytics.capture(
+    resume ? 'document_translation_resumed' : 'document_translation_started',
+    {
+      run_id: runId,
+      file_type: doc.fileType || 'unknown',
+      page_count: doc.pageCount || 0,
+      batch_count: batchCountForAnalytics,
+      total_char_count_bucket: bucketChars(totalCharsForAnalytics),
+    },
+  );
+
   const deeplTab = await findDeepLTab();
   if (!deeplTab) {
     await pauseDoc(docId, {
       pausedReason: 'no_deepl_tab',
       errorMessage: 'Open www.deepl.com/translator in a tab and click Resume.',
       currentStep: resume ? 'resume_blocked_no_tab' : 'start_blocked_no_tab',
+    });
+    self.analytics.capture('document_translation_failed', {
+      run_id: runId,
+      error_type: 'no_deepl_tab',
+      batches_completed: 0,
+      duration_ms: Date.now() - runStartedAt,
     });
     throw new Error('No DeepL tab found.');
   }
@@ -98,7 +161,7 @@ async function startDocumentTranslation(docId, opts = {}) {
     await cleanDeepLCookies().catch(() => {});
   }
 
-  const stopFlag = { stopRequested: false };
+  const stopFlag = { stopRequested: false, runId };
   stopFlags.set(docId, stopFlag);
 
   const totalChars = (doc.originalText || '').length;
@@ -224,6 +287,13 @@ async function startDocumentTranslation(docId, opts = {}) {
           totalCharacters: totalChars,
           currentStep: `paused_at_batch_${i}_${reason}`,
         });
+        self.analytics.capture('document_translation_failed', {
+          run_id: runId,
+          error_type: reason,
+          batches_completed: i,
+          batches_total: batches.length,
+          duration_ms: Date.now() - runStartedAt,
+        });
         return;
       }
 
@@ -246,6 +316,13 @@ async function startDocumentTranslation(docId, opts = {}) {
 
     const translatedText = translatedParts.join('\n\n');
     await completeDocument(doc, translatedText);
+    self.analytics.capture('document_translation_completed', {
+      run_id: runId,
+      file_type: doc.fileType || 'unknown',
+      batch_count: batches.length,
+      total_char_count_bucket: bucketChars(totalChars),
+      duration_ms: Date.now() - runStartedAt,
+    });
     // Single end-of-document notification. content.js suppressed the
     // per-batch toasts via the silent flag, so this is the only popup the
     // user sees for a whole-document translation.
@@ -261,6 +338,11 @@ async function startDocumentTranslation(docId, opts = {}) {
       errorMessage:
         (err && err.message) || 'Translation failed. Click Resume to retry.',
       currentStep: 'paused_unexpected_error',
+    });
+    self.analytics.capture('document_translation_failed', {
+      run_id: runId,
+      error_type: classifyError(err),
+      duration_ms: Date.now() - runStartedAt,
     });
   } finally {
     stopFlags.delete(docId);

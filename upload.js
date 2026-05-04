@@ -51,6 +51,22 @@ document.getElementById("fileUpload").addEventListener("change", function (event
     chrome.storage.local.set({ documents: docs });
     renderUploadEntry(fileEntry);
   });
+
+  if (window.track) {
+    window.track("document_uploaded", {
+      file_type: ext,
+      size_bucket:
+        file.size < 50_000
+          ? "0-50k"
+          : file.size < 250_000
+            ? "50k-250k"
+            : file.size < 1_000_000
+              ? "250k-1m"
+              : file.size < 5_000_000
+                ? "1m-5m"
+                : "5m+",
+    });
+  }
 });
 
 // ─── Render a document entry in the list ─────────────────────────────────────

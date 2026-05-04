@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>DeepL Pro Unlimited – Privacy & Analytics</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet" />
+        <link
+            rel="stylesheet"
+            href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css"
+        />
+        <style>
+            body {
+                font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+                background: #f8f9fa;
+            }
+            .consent-card {
+                max-width: 720px;
+                margin: 40px auto;
+                padding: 32px;
+                background: #fff;
+                border-radius: 12px;
+                box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+            }
+            .pill-list li {
+                margin-bottom: 6px;
+            }
+            .pill-list .bi {
+                margin-right: 8px;
+            }
+            .ok {
+                color: #198754;
+            }
+            .no {
+                color: #dc3545;
+            }
+            .hr-tight {
+                margin: 24px 0;
+                border-top: 1px solid #dee2e6;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="consent-card">
+            <h1 class="h3 mb-1 text-primary fw-bold">
+                <i class="bi bi-shield-check me-2"></i>Help improve DeepL Pro Unlimited
+            </h1>
+            <p class="text-muted mb-4">
+                We'd like to understand which features are useful so we can keep what matters and retire what doesn't.
+                Sharing anonymous usage data is optional.
+            </p>
+
+            <h2 class="h6 fw-semibold mt-4 mb-2">What we collect</h2>
+            <ul class="pill-list list-unstyled">
+                <li><i class="bi bi-check-circle ok"></i>Which buttons and tabs you use (e.g. <em>Magic Fix</em>, <em>Documents</em>)</li>
+                <li><i class="bi bi-check-circle ok"></i>Character-count buckets (e.g. "2k–5k") — never the text itself</li>
+                <li><i class="bi bi-check-circle ok"></i>Translation success / failure and the type of error</li>
+                <li><i class="bi bi-check-circle ok"></i>Extension version and your browser's interface language</li>
+                <li><i class="bi bi-check-circle ok"></i>A random anonymous ID generated on this device</li>
+            </ul>
+
+            <h2 class="h6 fw-semibold mt-4 mb-2">What we never collect</h2>
+            <ul class="pill-list list-unstyled">
+                <li><i class="bi bi-x-circle no"></i>The text you translate, paste, upload, or copy</li>
+                <li><i class="bi bi-x-circle no"></i>Your IP address (PostHog drops it server-side)</li>
+                <li><i class="bi bi-x-circle no"></i>Browsing history or pages you visit</li>
+                <li><i class="bi bi-x-circle no"></i>Email, name, or any account data</li>
+                <li><i class="bi bi-x-circle no"></i>File contents of PDFs, Word, Excel, or PowerPoint files</li>
+            </ul>
+
+            <hr class="hr-tight" />
+
+            <p class="small text-muted mb-2">
+                Data is sent to <strong>PostHog</strong> on EU servers (<code>eu.i.posthog.com</code>). You can change
+                your mind at any time from the extension's <em>Settings</em> page.
+            </p>
+            <p class="small text-muted">
+                <a id="privacyLink" href="#" target="_blank" rel="noopener">Read the full privacy policy</a>
+            </p>
+
+            <div class="d-flex gap-2 justify-content-end mt-4">
+                <button id="declineBtn" class="btn btn-outline-secondary">
+                    <i class="bi bi-x-lg me-1"></i>No thanks
+                </button>
+                <button id="acceptBtn" class="btn btn-primary">
+                    <i class="bi bi-check-lg me-1"></i>Share anonymous usage data
+                </button>
+            </div>
+            <div id="confirm" class="alert alert-success mt-3 d-none" role="alert"></div>
+        </div>
+
+        <script src="track.js"></script>
+        <script src="consent.js"></script>
+    </body>
+</html>

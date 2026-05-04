@@ -9,6 +9,18 @@ document.addEventListener("DOMContentLoaded", () => {
   const magicFixBtn = document.getElementById("magicFixBtn");
   const swapBtn = document.getElementById("swapBtn");
 
+  // Anonymous usage analytics — no-ops when consent is denied.
+  // window.track / window.bucketChars come from track.js (loaded earlier).
+  if (window.track) window.track("popup_opened");
+
+  const settingsBtn = document.getElementById("settingsBtn");
+  if (settingsBtn) {
+    settingsBtn.addEventListener("click", () => {
+      if (window.track) window.track("settings_opened");
+      chrome.runtime.openOptionsPage();
+    });
+  }
+
   // ✅ Track pending translations for completion signals
   const pendingTranslations = new Map();
 
@@ -47,6 +59,9 @@ document.addEventListener("DOMContentLoaded", () => {
       const target = event.target.getAttribute("href");
       if (target === "#history") {
         loadHistory();
+      }
+      if (window.track) {
+        window.track("popup_tab_viewed", { tab: (target || "").replace("#", "") });
       }
     });
   });
@@ -103,6 +118,13 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("bulkCopyBtn").addEventListener("click", () => {
     const selected = currentVerlauf.filter((e) => selectedIds.has(e.id));
     const text = selected.map((e) => e.translated).join("\n\n---\n\n");
+    if (window.track) {
+      window.track("result_copied", {
+        target: "history_bulk",
+        count: selected.length,
+        char_count_bucket: window.bucketChars ? window.bucketChars(text.length) : null,
+      });
+    }
     navigator.clipboard.writeText(text).then(() => {
       const btn = document.getElementById("bulkCopyBtn");
       const oldHTML = btn.innerHTML;
@@ -319,6 +341,15 @@ document.addEventListener("DOMContentLoaded", () => {
       );
     }
 
+    const charBucket = window.bucketChars ? window.bucketChars(text.length) : null;
+    const translationStartedAt = Date.now();
+    if (window.track) {
+      window.track("translation_started", {
+        trigger: "popup_main",
+        char_count_bucket: charBucket,
+      });
+    }
+
     // Disable button during processing
     sendBtn.disabled = true;
     sendBtn.innerHTML = `
@@ -364,6 +395,13 @@ document.addEventListener("DOMContentLoaded", () => {
       clearInterval(progressInterval);
 
       if (result.success) {
+        if (window.track) {
+          window.track("translation_completed", {
+            trigger: "popup_main",
+            char_count_bucket: charBucket,
+            duration_ms: Date.now() - translationStartedAt,
+          });
+        }
         updateMainProgressBar(
           100,
           "Translation complete!",
@@ -390,6 +428,22 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (error) {
       clearInterval(progressInterval);
       console.error("Translation error:", error);
+      if (window.track) {
+        const msg = (error && error.message ? error.message : "").toLowerCase();
+        const errorType = msg.includes("timeout")
+          ? "timeout"
+          : msg.includes("rate") || msg.includes("429")
+            ? "rate_limited"
+            : msg.includes("network") || msg.includes("fetch")
+              ? "network"
+              : "other";
+        window.track("translation_failed", {
+          trigger: "popup_main",
+          char_count_bucket: charBucket,
+          error_type: errorType,
+          duration_ms: Date.now() - translationStartedAt,
+        });
+      }
 
       // Update progress bar to show error
       const progressWrapper = document.getElementById("mainProgressWrapper");
@@ -439,6 +493,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Swap Button
   swapBtn.addEventListener("click", () => {
+    if (window.track) window.track("swap_used");
     swapBtn.style.transform = "rotate(180deg)";
     swapBtn.style.transition = "transform 0.3s ease";
 
@@ -474,6 +529,11 @@ document.addEventListener("DOMContentLoaded", () => {
   magicFixBtn.addEventListener("click", () => {
     let text = inputText.value;
     if (!text) return;
+    if (window.track) {
+      window.track("magic_fix_used", {
+        char_count_bucket: window.bucketChars ? window.bucketChars(text.length) : null,
+      });
+    }
 
     const fixedText = text
       .replace(/([^.\n])\n([^.\n])/g, "$1 $2")
@@ -497,6 +557,12 @@ document.addEventListener("DOMContentLoaded", () => {
   copyInputBtn.addEventListener("click", () => {
     const text = inputText.value;
     if (text) {
+      if (window.track) {
+        window.track("result_copied", {
+          target: "input",
+          char_count_bucket: window.bucketChars ? window.bucketChars(text.length) : null,
+        });
+      }
       navigator.clipboard.writeText(text).then(() => {
         const originalHTML = copyInputBtn.innerHTML;
         copyInputBtn.innerHTML =

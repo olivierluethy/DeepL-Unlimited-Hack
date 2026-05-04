@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "DeepL Pro Unlimited – Long Texts Without Limits",
-  "version": "1.0.17",
+  "version": "1.0.18",
   "description": "Translate unlimited long texts with DeepL. Automatically split content into blocks, batch translate, and download results.",
-  "permissions": ["scripting", "downloads", "storage", "clipboardRead", "cookies", "tabs"],
+  "permissions": ["scripting", "downloads", "storage", "clipboardRead", "cookies", "tabs", "alarms"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
@@ -22,6 +22,10 @@
   "background": {
     "service_worker": "background.js"
   },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "content_scripts": [
     {
       "matches": ["*://www.deepl.com/*"],
@@ -29,7 +33,7 @@
       "run_at": "document_idle"
     }
   ],
-  "host_permissions": ["*://www.deepl.com/*"],
+  "host_permissions": ["*://www.deepl.com/*", "https://eu.i.posthog.com/*"],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },

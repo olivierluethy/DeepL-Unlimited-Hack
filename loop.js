@@ -193,6 +193,14 @@ async function startGroupTranslation(entryDiv) {
   const startBtn = entryDiv.querySelector(".start-group");
   const stopBtn = entryDiv.querySelector(".stop-group");
 
+  // Track the whole batch as ONE analytics run. Per-iteration events
+  // would drown the dashboard — what we care about is whether batch
+  // mode gets used and how reliable it is.
+  const loopStartedAt = Date.now();
+  let loopIterationsCompleted = 0;
+  let loopIterationsTotal = 0;
+  let loopEventEmitted = false;
+
   try {
     // Check DeepL before starting
     const inside = await checkInsideDeepL();
@@ -211,6 +219,13 @@ async function startGroupTranslation(entryDiv) {
     if (!subEntries.length) {
       alert("This group has no entries to translate.");
       return;
+    }
+
+    loopIterationsTotal = subEntries.length;
+    if (window.track) {
+      window.track("loop_run_started", {
+        iteration_count: loopIterationsTotal,
+      });
     }
 
     entryDiv.dataset.used = "true";
@@ -258,6 +273,7 @@ async function startGroupTranslation(entryDiv) {
 
         if (result.success) {
           successCount++;
+          loopIterationsCompleted++;
           console.log(`✅ Entry ${i + 1} completed successfully`);
         } else {
           failCount++;
@@ -288,6 +304,33 @@ async function startGroupTranslation(entryDiv) {
       showToast(`All ${successCount} translations completed!`);
     }
 
+    if (window.track && loopIterationsTotal > 0) {
+      const props = {
+        iteration_count: loopIterationsTotal,
+        iterations_completed: loopIterationsCompleted,
+        iterations_failed: failCount,
+        duration_ms: Date.now() - loopStartedAt,
+      };
+      if (stopTranslation) {
+        window.track("loop_run_cancelled", props);
+      } else if (failCount > 0) {
+        window.track("loop_run_failed", props);
+      } else {
+        window.track("loop_run_completed", props);
+      }
+      loopEventEmitted = true;
+    }
+
+  } catch (err) {
+    if (window.track && loopIterationsTotal > 0 && !loopEventEmitted) {
+      window.track("loop_run_failed", {
+        iteration_count: loopIterationsTotal,
+        iterations_completed: loopIterationsCompleted,
+        duration_ms: Date.now() - loopStartedAt,
+        error_type: "unexpected",
+      });
+    }
+    throw err;
   } finally {
 
     // Always clean up UI
