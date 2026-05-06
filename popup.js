@@ -64,8 +64,28 @@ document.addEventListener("DOMContentLoaded", () => {
       if (window.trackEvent) {
         window.trackEvent("popup_tab_viewed", { tab: (target || "").replace("#", "") });
       }
+      if (target === "#loop") {
+        emitLoopTabViewedState();
+      }
     });
   });
+
+  // Loop tab state — fired every time the Batch tab is opened, even
+  // when empty (entry_count: 0). The rate of empty-state views vs
+  // populated views answers "do users open this tab and bounce?".
+  function emitLoopTabViewedState() {
+    if (!window.trackEvent) return;
+    const groups = document.querySelectorAll("#entriesContainer .loop-entry");
+    let totalSub = 0;
+    groups.forEach((g) => {
+      totalSub += g.querySelectorAll(".sub-entry").length;
+    });
+    window.trackEvent("loop_tab_viewed_state", {
+      has_entries: groups.length > 0,
+      entry_count: groups.length,
+      total_subentries: totalSub,
+    });
+  }
 
   // --- History multi-selection helpers ---
 

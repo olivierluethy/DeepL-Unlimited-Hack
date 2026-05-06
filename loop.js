@@ -201,10 +201,26 @@ async function startGroupTranslation(entryDiv) {
   let loopIterationsTotal = 0;
   let loopEventEmitted = false;
 
+  // Pre-validation count — used both for loop_start_clicked (fired
+  // BEFORE the DeepL/empty checks so we capture every Start press)
+  // and for loop_aborted reasons.
+  const subEntriesPre = entryDiv.querySelectorAll(".sub-entry .sub-entry-text");
+  if (window.trackEvent) {
+    window.trackEvent("loop_start_clicked", {
+      iteration_count: subEntriesPre.length,
+    });
+  }
+
   try {
     // Check DeepL before starting
     const inside = await checkInsideDeepL();
     if (!inside) {
+      if (window.trackEvent) {
+        window.trackEvent("loop_aborted", {
+          reason: "deepl_not_open",
+          iteration_count: subEntriesPre.length,
+        });
+      }
       alert("Please open DeepL first.");
       return;
     }
@@ -217,6 +233,12 @@ async function startGroupTranslation(entryDiv) {
     const subEntries = entryDiv.querySelectorAll(".sub-entry .sub-entry-text");
 
     if (!subEntries.length) {
+      if (window.trackEvent) {
+        window.trackEvent("loop_aborted", {
+          reason: "no_entries",
+          iteration_count: 0,
+        });
+      }
       alert("This group has no entries to translate.");
       return;
     }
@@ -249,6 +271,13 @@ async function startGroupTranslation(entryDiv) {
       const stillInside = await checkInsideDeepL();
       if (!stillInside) {
         console.warn("❌ DeepL not detected anymore. Stopping process.");
+        if (window.trackEvent) {
+          window.trackEvent("loop_aborted", {
+            reason: "deepl_lost_during_run",
+            iteration_count: loopIterationsTotal,
+            iterations_completed: loopIterationsCompleted,
+          });
+        }
         showToast("Translation stopped: DeepL tab not active.");
         stopTranslation = true;
         updateProgressBar(entryDiv, i, subEntries.length, "DeepL closed");
@@ -378,6 +407,9 @@ function initEntriesSortable() {
       updateEntryNumbers();
       saveEntriesToStorage();
       console.log("📦 Entries reordered");
+      if (window.trackEvent && evt.oldIndex !== evt.newIndex) {
+        window.trackEvent("loop_group_reordered", {});
+      }
     },
   });
 }
@@ -407,6 +439,9 @@ function initSubEntrySortable(entryDiv) {
       updateSubEntryNumbers(entryDiv);
       saveEntriesToStorage();
       console.log("📦 Sub-entries reordered");
+      if (window.trackEvent && evt.oldIndex !== evt.newIndex) {
+        window.trackEvent("loop_subentry_reordered", {});
+      }
     },
   });
 
@@ -653,6 +688,13 @@ function renderEntry(entryData, container) {
 
   // Copy Button
   subInputGroup.querySelector(".copySubEntry").addEventListener("click", () => {
+    if (window.trackEvent) {
+      window.trackEvent("loop_copy_used", {
+        char_count_bucket: window.bucketChars
+          ? window.bucketChars(textarea.value.length)
+          : null,
+      });
+    }
     navigator.clipboard.writeText(textarea.value);
     showToast("Copied to clipboard!");
   });
@@ -662,12 +704,26 @@ function renderEntry(entryData, container) {
     const clipText = await navigator.clipboard.readText();
     textarea.value = clipText;
     textarea.focus();
+    if (window.trackEvent) {
+      window.trackEvent("loop_paste_used", {
+        char_count_bucket: window.bucketChars
+          ? window.bucketChars((clipText || "").length)
+          : null,
+      });
+    }
     // Check for multi-line paste
     handleMultiPaste(entryDiv, textarea);
   });
 
   // Clear Button
   subInputGroup.querySelector(".clearSubEntry").addEventListener("click", () => {
+    if (window.trackEvent) {
+      window.trackEvent("loop_clear_used", {
+        char_count_bucket: window.bucketChars
+          ? window.bucketChars(textarea.value.length)
+          : null,
+      });
+    }
     textarea.value = "";
     textarea.focus();
   });
@@ -784,12 +840,26 @@ function handleMultiPaste(entryDiv, textarea) {
 
       subContainer.dataset.subEntryCounter = subEntryCounter;
       textarea.value = "";
-      
+
+      if (window.trackEvent) {
+        window.trackEvent("loop_subentry_added", {
+          method: "multi_paste",
+          count: lines.length,
+        });
+      }
+
       // Re-initialize sortable
       initSubEntrySortable(entryDiv);
       saveEntriesToStorage();
-      
+
       showToast(`Created ${lines.length} subentries!`);
+    } else if (window.trackEvent) {
+      // User declined multi-paste, kept as single entry — falls back to
+      // the single add path below via the next click of the Add button.
+      window.trackEvent("loop_subentry_added", {
+        method: "multi_paste_declined",
+        count: lines.length,
+      });
     }
   }
 }
@@ -824,6 +894,10 @@ function addSubEntryFromInput(entryDiv, textarea) {
   subContainer.appendChild(subDiv);
   textarea.value = "";
 
+  if (window.trackEvent) {
+    window.trackEvent("loop_subentry_added", { method: "single", count: 1 });
+  }
+
   // Trigger animation
   requestAnimationFrame(() => {
     subDiv.style.opacity = "1";
@@ -831,7 +905,7 @@ function addSubEntryFromInput(entryDiv, textarea) {
   });
 
   updateTextToggle(subDiv);
-  
+
   // Re-initialize sortable
   initSubEntrySortable(entryDiv);
   saveEntriesToStorage();
@@ -910,6 +984,11 @@ document.getElementById("addLoop").addEventListener("click", function () {
   updateEntryNumbers();
   input.value = "";
 
+  if (window.trackEvent) {
+    const totalGroups = container.querySelectorAll(".loop-entry").length;
+    window.trackEvent("loop_group_created", { entry_count_after: totalGroups });
+  }
+
   // Re-initialize main sortable
   initEntriesSortable();
   saveEntriesToStorage();
@@ -982,6 +1061,13 @@ document.getElementById("entriesContainer").addEventListener("click", function (
     const entryDiv = (target.closest(".start-group") || target).closest(".loop-entry");
     startGroupTranslation(entryDiv);
   } else if (target.classList.contains("stop-group") || target.closest(".stop-group")) {
+    if (window.trackEvent) {
+      // Fires immediately at click — the actual run-state event
+      // (loop_run_cancelled) lands when the for-loop notices the flag
+      // a beat later. Both are kept: loop_aborted carries the precise
+      // user-intent reason, loop_run_cancelled carries the run state.
+      window.trackEvent("loop_aborted", { reason: "user_stopped" });
+    }
     stopTranslation = true;
   }
 });
@@ -1138,7 +1224,18 @@ function saveEditText(btn) {
   
   // NOW save to storage (after DOM is updated)
   saveEntriesToStorage();
-  
+
+  if (window.trackEvent) {
+    window.trackEvent(
+      type === "entry" ? "loop_group_edited" : "loop_subentry_edited",
+      {
+        char_count_bucket: window.bucketChars
+          ? window.bucketChars(newText.length)
+          : null,
+      },
+    );
+  }
+
   showToast("Changes saved!");
 }
 
@@ -1180,6 +1277,14 @@ function deleteEntry(btn, type) {
     }
     
     saveEntriesToStorage();
+
+    if (window.trackEvent) {
+      window.trackEvent(
+        type === "entry" ? "loop_group_deleted" : "loop_subentry_deleted",
+        {},
+      );
+    }
+
     showToast(type === "entry" ? "Entry deleted" : "Subentry deleted");
   }, 300);
 }
