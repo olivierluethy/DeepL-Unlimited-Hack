@@ -53,9 +53,13 @@ document.getElementById("fileUpload").addEventListener("change", function (event
   });
 
   if (window.trackEvent) {
-    window.trackEvent("document_uploaded", {
+    window.trackEvent("documents_file_selected", {
       file_type: ext,
-      size_bucket:
+      // Legacy bucket scheme — different from the canonical
+      // bucketFileSize() in track.js. Kept here so existing
+      // upload-page rows in PostHog stay comparable; the new
+      // fullpage-driven path (commit 7) uses the canonical buckets.
+      file_size_bucket:
         file.size < 50_000
           ? "0-50k"
           : file.size < 250_000
@@ -65,6 +69,7 @@ document.getElementById("fileUpload").addEventListener("change", function (event
               : file.size < 5_000_000
                 ? "1m-5m"
                 : "5m+",
+      source: "upload_page",
     });
   }
 });

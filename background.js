@@ -72,7 +72,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'STOP_DOC') {
     const flag = stopFlags.get(msg.id);
     if (flag) flag.stopRequested = true;
-    self.analytics.capture('document_translation_stopped_by_user', {
+    self.analytics.capture('documents_translation_stopped_by_user', {
       run_id: flag ? flag.runId : null,
     });
     sendResponse({ ok: true });
@@ -118,7 +118,7 @@ async function startDocumentTranslation(docId, opts = {}) {
   const batchCountForAnalytics = splitIntoBatches(doc.originalText, BATCH_SIZE).length;
 
   self.analytics.capture(
-    resume ? 'document_translation_resumed' : 'document_translation_started',
+    resume ? 'documents_translation_resumed' : 'documents_translation_started',
     {
       run_id: runId,
       file_type: doc.fileType || 'unknown',
@@ -135,7 +135,7 @@ async function startDocumentTranslation(docId, opts = {}) {
       errorMessage: 'Open www.deepl.com/translator in a tab and click Resume.',
       currentStep: resume ? 'resume_blocked_no_tab' : 'start_blocked_no_tab',
     });
-    self.analytics.capture('document_translation_failed', {
+    self.analytics.capture('documents_translation_failed', {
       run_id: runId,
       error_type: 'no_deepl_tab',
       batches_completed: 0,
@@ -277,7 +277,7 @@ async function startDocumentTranslation(docId, opts = {}) {
           totalCharacters: totalChars,
           currentStep: `paused_at_batch_${i}_${reason}`,
         });
-        self.analytics.capture('document_translation_failed', {
+        self.analytics.capture('documents_translation_failed', {
           run_id: runId,
           error_type: reason,
           batches_completed: i,
@@ -306,7 +306,7 @@ async function startDocumentTranslation(docId, opts = {}) {
 
     const translatedText = translatedParts.join('\n\n');
     await completeDocument(doc, translatedText);
-    self.analytics.capture('document_translation_completed', {
+    self.analytics.capture('documents_translation_completed', {
       run_id: runId,
       file_type: doc.fileType || 'unknown',
       batch_count: batches.length,
@@ -329,7 +329,7 @@ async function startDocumentTranslation(docId, opts = {}) {
         (err && err.message) || 'Translation failed. Click Resume to retry.',
       currentStep: 'paused_unexpected_error',
     });
-    self.analytics.capture('document_translation_failed', {
+    self.analytics.capture('documents_translation_failed', {
       run_id: runId,
       error_type: classifyError(err),
       duration_ms: Date.now() - runStartedAt,

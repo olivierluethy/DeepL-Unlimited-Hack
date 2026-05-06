@@ -120,9 +120,8 @@ document.addEventListener("DOMContentLoaded", () => {
     const selected = currentVerlauf.filter((e) => selectedIds.has(e.id));
     const text = selected.map((e) => e.translated).join("\n\n---\n\n");
     if (window.trackEvent) {
-      window.trackEvent("result_copied", {
-        target: "history_bulk",
-        count: selected.length,
+      window.trackEvent("history_bulk_copy_clicked", {
+        entry_count: selected.length,
         char_count_bucket: window.bucketChars ? window.bucketChars(text.length) : null,
       });
     }
@@ -345,8 +344,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const charBucket = window.bucketChars ? window.bucketChars(text.length) : null;
     const translationStartedAt = Date.now();
     if (window.trackEvent) {
-      window.trackEvent("translation_started", {
-        trigger: "popup_main",
+      window.trackEvent("main_translation_started", {
         char_count_bucket: charBucket,
       });
     }
@@ -397,8 +395,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       if (result.success) {
         if (window.trackEvent) {
-          window.trackEvent("translation_completed", {
-            trigger: "popup_main",
+          window.trackEvent("main_translation_completed", {
             char_count_bucket: charBucket,
             duration_ms: Date.now() - translationStartedAt,
           });
@@ -438,8 +435,7 @@ document.addEventListener("DOMContentLoaded", () => {
             : msg.includes("network") || msg.includes("fetch")
               ? "network"
               : "other";
-        window.trackEvent("translation_failed", {
-          trigger: "popup_main",
+        window.trackEvent("main_translation_failed", {
           char_count_bucket: charBucket,
           error_type: errorType,
           duration_ms: Date.now() - translationStartedAt,
@@ -494,7 +490,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Swap Button
   swapBtn.addEventListener("click", () => {
-    if (window.trackEvent) window.trackEvent("swap_used");
+    if (window.trackEvent) window.trackEvent("main_swap_used");
     swapBtn.style.transform = "rotate(180deg)";
     swapBtn.style.transition = "transform 0.3s ease";
 
@@ -531,7 +527,7 @@ document.addEventListener("DOMContentLoaded", () => {
     let text = inputText.value;
     if (!text) return;
     if (window.trackEvent) {
-      window.trackEvent("magic_fix_used", {
+      window.trackEvent("main_magic_fix_used", {
         char_count_bucket: window.bucketChars ? window.bucketChars(text.length) : null,
       });
     }
@@ -559,7 +555,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const text = inputText.value;
     if (text) {
       if (window.trackEvent) {
-        window.trackEvent("result_copied", {
+        window.trackEvent("main_copy_used", {
           target: "input",
           char_count_bucket: window.bucketChars ? window.bucketChars(text.length) : null,
         });
