@@ -86,6 +86,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (target === "#loop") {
         emitLoopTabViewedState();
       }
+      if (target === "#history") {
+        emitHistoryTabViewedState();
+      }
     });
   });
 
@@ -109,6 +112,19 @@ document.addEventListener("DOMContentLoaded", () => {
       has_entries: groups.length > 0,
       entry_count: groups.length,
       total_subentries: totalSub,
+    });
+  }
+
+  // History tab state — same shape as loop_tab_viewed_state. Reads
+  // from storage (rather than DOM) because the history list re-renders
+  // asynchronously after this event fires.
+  function emitHistoryTabViewedState() {
+    if (!window.trackEvent) return;
+    chrome.storage.local.get({ verlauf: [] }, ({ verlauf }) => {
+      window.trackEvent("history_tab_viewed_state", {
+        has_entries: verlauf.length > 0,
+        entry_count: verlauf.length,
+      });
     });
   }
 
@@ -186,6 +202,12 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     const selected = currentVerlauf.filter((e) => selectedIds.has(e.id));
     if (!selected.length) return;
+    if (window.trackEvent) {
+      window.trackEvent("history_bulk_save_clicked", {
+        format: "txt",
+        entry_count: selected.length,
+      });
+    }
     const content = selected
       .map(
         (e, i) =>
@@ -205,6 +227,12 @@ document.addEventListener("DOMContentLoaded", () => {
     e.preventDefault();
     const selected = currentVerlauf.filter((e) => selectedIds.has(e.id));
     if (!selected.length) return;
+    if (window.trackEvent) {
+      window.trackEvent("history_bulk_save_clicked", {
+        format: "word",
+        entry_count: selected.length,
+      });
+    }
     // Build a real OOXML .docx with one numbered heading per entry.
     // Only translated text is exported (original is already stored locally).
     const blob = buildMultiDocxBlob(selected);
@@ -222,6 +250,9 @@ document.addEventListener("DOMContentLoaded", () => {
     if (
       confirm(`Delete ${count} selected ${count === 1 ? "entry" : "entries"}?`)
     ) {
+      if (window.trackEvent) {
+        window.trackEvent("history_bulk_deleted", { entry_count: count });
+      }
       chrome.storage.local.get({ verlauf: [] }, (result) => {
         const filtered = result.verlauf.filter((e) => !selectedIds.has(e.id));
         chrome.storage.local.set({ verlauf: filtered }, () => loadHistory());
@@ -871,6 +902,11 @@ document.addEventListener("DOMContentLoaded", () => {
             });
 
           item.querySelector(".details-entry").addEventListener("click", () => {
+            if (window.trackEvent) {
+              window.trackEvent("history_entry_clicked", {
+                action: "open_details",
+              });
+            }
             const url =
               chrome.runtime.getURL("history-detail.html") + `?id=${entry.id}`;
             chrome.tabs.create({ url });
@@ -903,12 +939,22 @@ document.addEventListener("DOMContentLoaded", () => {
           item.querySelectorAll(".dropdown-item").forEach((dropdownItem) => {
             dropdownItem.addEventListener("click", (e) => {
               e.preventDefault();
-              downloadEntry(entry.id, e.target.getAttribute("data-format"));
+              const format = e.target.getAttribute("data-format");
+              if (window.trackEvent) {
+                window.trackEvent("history_single_save_clicked", {
+                  format: format,
+                  source: "popup",
+                });
+              }
+              downloadEntry(entry.id, format);
             });
           });
 
           item.querySelector(".delete-btn").addEventListener("click", () => {
             if (confirm("Delete this entry?")) {
+              if (window.trackEvent) {
+                window.trackEvent("history_entry_deleted", { source: "popup" });
+              }
               chrome.storage.local.get({ verlauf: [] }, (res) => {
                 const filtered = res.verlauf.filter((e) => e.id !== entry.id);
                 chrome.storage.local.set({ verlauf: filtered }, () =>

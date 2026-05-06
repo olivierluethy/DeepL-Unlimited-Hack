@@ -16,6 +16,22 @@ const formatDate = (ts) => new Date(ts).toLocaleString('en-US', {
 const countWords = (text) => text.trim().split(/\s+/).filter(w => w).length;
 
 document.addEventListener("DOMContentLoaded", () => {
+  // Track how long users actually spend on the details page —
+  // distinguishes "opened and closed instantly" (probably misclicked)
+  // from "actually read the diff". Pair: history_details_opened on
+  // mount, history_details_closed on pagehide with duration_ms.
+  const detailsOpenedAt = Date.now();
+  if (window.trackEvent) {
+    window.trackEvent("history_details_opened", {});
+  }
+  window.addEventListener("pagehide", () => {
+    if (window.trackEvent) {
+      window.trackEvent("history_details_closed", {
+        duration_ms: Date.now() - detailsOpenedAt,
+      });
+    }
+  });
+
   // Elements
   const timestamp = document.getElementById("timestamp");
   const backBtn = document.getElementById("backBtn");
@@ -145,6 +161,9 @@ document.addEventListener("DOMContentLoaded", () => {
     // Setup delete button
     deleteBtn.addEventListener("click", () => {
       if (confirm("Are you sure you want to delete this entry? This cannot be undone.")) {
+        if (window.trackEvent) {
+          window.trackEvent("history_entry_deleted", { source: "detail_page" });
+        }
         chrome.storage.local.get({ verlauf: [] }, (res) => {
           const filtered = res.verlauf.filter((e) => e.id !== entryId);
           chrome.storage.local.set({ verlauf: filtered }, () => {
@@ -163,6 +182,12 @@ document.addEventListener("DOMContentLoaded", () => {
       item.addEventListener("click", (e) => {
         e.preventDefault();
         const format = e.currentTarget.getAttribute("data-format");
+        if (window.trackEvent) {
+          window.trackEvent("history_single_save_clicked", {
+            format: format,
+            source: "detail_page",
+          });
+        }
         downloadEntry(entry, format);
       });
     });
