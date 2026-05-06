@@ -12,6 +12,12 @@
 (function () {
   "use strict";
 
+  // Manual sanity check — confirms in which surfaces (popup, fullpage,
+  // history-detail, options, upload-page) track.js actually loaded.
+  // Keep this — it's the only signal at runtime that PostHog wiring is
+  // present in a given page.
+  console.log("📡 track.js loaded in:", location.pathname);
+
   function track(eventName, properties = {}) {
     try {
       chrome.runtime.sendMessage({
