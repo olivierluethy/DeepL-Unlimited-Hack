@@ -129,6 +129,8 @@ Fragen: "Welcher Dateityp wird am meisten verwendet? Wie oft müssen User die Ü
 | `documents_resume_button_clicked` | `[data-doc-action="resume"]` click | – | Click-Intent. Pairs mit `documents_translation_resumed` (SW). |
 | `documents_pending_doc_deleted` | `[data-doc-action="delete"]` click | – | |
 
+> ⚠ **Properties-Hinweis für `documents_failed_state_viewed`** (gilt 1:1 auch für `documents_page_reloaded_during_translation` weiter unten): `pending_file_type` und `pending_status` reflektieren **nur das neueste failed Doc** nach `updatedAt` — bei mehreren gleichzeitig fehlgeschlagenen Docs gehen die anderen Werte verloren. Für aggregierte Multi-Doc-Analysen ausschließlich `paused_count` / `error_count` / `pending_count_total` verwenden, **nicht** `pending_file_type`. Beispiel: "Anteil User mit ≥2 gleichzeitig failed Docs" → Filter `paused_count + error_count >= 2`. Wenn du später eine Verteilung der Dateitypen über alle gleichzeitig failed Docs brauchst, ist das mit den aktuellen Properties **nicht möglich** — siehe `tracking-audit.md` / Folge-Issue für den optionalen `failed_file_types`-Array-Patch.
+
 ### Fullpage-side (fullpage.js)
 
 | Event | Trigger | Properties | Zweck |
