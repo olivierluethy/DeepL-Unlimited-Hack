@@ -29,6 +29,21 @@ document.addEventListener("DOMContentLoaded", () => {
   let selectedIds = new Set();
   let currentVerlauf = [];
 
+  // Main-tab session: which buttons did the user actually use during
+  // the current popup mount? Flushed as main_session_summary on tab
+  // switch away from #main or on popup pagehide. Allowed members:
+  // "paste", "copy", "clear", "magic_fix", "swap", "send".
+  const mainActionsUsed = new Set();
+  function flushMainSessionSummary() {
+    if (!window.trackEvent) return;
+    if (mainActionsUsed.size === 0) return;
+    window.trackEvent("main_session_summary", {
+      actions_used: [...mainActionsUsed].sort(),
+      action_count: mainActionsUsed.size,
+    });
+    mainActionsUsed.clear();
+  }
+
   // ─── Documents tab: pending uploads (driven by background.js) ──────────────
   // The popup is transient — translation lives in the service worker. This
   // block just renders the list and ships START_DOC / STOP_DOC / DELETE_DOC
@@ -58,6 +73,10 @@ document.addEventListener("DOMContentLoaded", () => {
   tabList.forEach((tab) => {
     tab.addEventListener("shown.bs.tab", (event) => {
       const target = event.target.getAttribute("href");
+      const previous = event.relatedTarget && event.relatedTarget.getAttribute("href");
+      if (previous === "#main") {
+        flushMainSessionSummary();
+      }
       if (target === "#history") {
         loadHistory();
       }
@@ -68,6 +87,12 @@ document.addEventListener("DOMContentLoaded", () => {
         emitLoopTabViewedState();
       }
     });
+  });
+
+  // Popup close / hide — last chance to flush the main session summary.
+  // pagehide fires more reliably than beforeunload in MV3 popups.
+  window.addEventListener("pagehide", () => {
+    flushMainSessionSummary();
   });
 
   // Loop tab state — fired every time the Batch tab is opened, even
@@ -345,6 +370,22 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- Send to DeepL Button (UPDATED with Progress Bar) ---
   sendBtn.addEventListener("click", async () => {
     const text = inputText.value.trim();
+    const charBucketPre = window.bucketChars
+      ? window.bucketChars(text.length)
+      : null;
+
+    // Pre-validation event — fires for every Send press, even when we
+    // bail because of empty input or a non-DeepL tab. main_translation_*
+    // only fires for actual run attempts; this captures user intent.
+    if (window.trackEvent) {
+      window.trackEvent("main_send_to_deepl_clicked", {
+        char_count_bucket: charBucketPre,
+        has_text: text.length > 0,
+        trigger: "button",
+      });
+    }
+    mainActionsUsed.add("send");
+
     if (!text) return alert("Please enter text.");
 
     const [tab] = await chrome.tabs.query({
@@ -356,12 +397,18 @@ document.addEventListener("DOMContentLoaded", () => {
       /^https:\/\/www\.deepl\.com\/[^\/]+\/(translate|write|translator)/;
 
     if (!tab.url || !deeplRegex.test(tab.url)) {
+      if (window.trackEvent) {
+        window.trackEvent("main_send_aborted", {
+          reason: "deepl_not_open",
+          char_count_bucket: charBucketPre,
+        });
+      }
       return alert(
         "You are not in DeepL. Please switch to DeepL for the extension to work.",
       );
     }
 
-    const charBucket = window.bucketChars ? window.bucketChars(text.length) : null;
+    const charBucket = charBucketPre;
     const translationStartedAt = Date.now();
     if (window.trackEvent) {
       window.trackEvent("main_translation_started", {
@@ -510,7 +557,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Swap Button
   swapBtn.addEventListener("click", () => {
-    if (window.trackEvent) window.trackEvent("main_swap_used");
+    const hadInput = inputText.value.trim().length > 0;
     swapBtn.style.transform = "rotate(180deg)";
     swapBtn.style.transition = "transform 0.3s ease";
 
@@ -520,6 +567,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     chrome.storage.local.get({ verlauf: [] }, (result) => {
       const verlauf = result.verlauf;
+      const hadOutput = verlauf.length > 0;
+
+      if (window.trackEvent) {
+        window.trackEvent("main_swap_used", {
+          had_input: hadInput,
+          had_output: hadOutput,
+        });
+      }
+      mainActionsUsed.add("swap");
 
       if (verlauf.length > 0) {
         const lastEntry = verlauf[verlauf.length - 1];
@@ -546,16 +602,26 @@ document.addEventListener("DOMContentLoaded", () => {
   magicFixBtn.addEventListener("click", () => {
     let text = inputText.value;
     if (!text) return;
-    if (window.trackEvent) {
-      window.trackEvent("main_magic_fix_used", {
-        char_count_bucket: window.bucketChars ? window.bucketChars(text.length) : null,
-      });
-    }
 
     const fixedText = text
       .replace(/([^.\n])\n([^.\n])/g, "$1 $2")
       .replace(/\s+/g, " ")
       .trim();
+
+    if (window.trackEvent) {
+      window.trackEvent("main_magic_fix_used", {
+        char_count_bucket_pre: window.bucketChars
+          ? window.bucketChars(text.length)
+          : null,
+        char_count_bucket_post: window.bucketChars
+          ? window.bucketChars(fixedText.length)
+          : null,
+        chars_removed_bucket: window.bucketChars
+          ? window.bucketChars(Math.max(0, text.length - fixedText.length))
+          : null,
+      });
+    }
+    mainActionsUsed.add("magic_fix");
 
     // Wert im UI setzen
     inputText.value = fixedText;
@@ -580,6 +646,7 @@ document.addEventListener("DOMContentLoaded", () => {
           char_count_bucket: window.bucketChars ? window.bucketChars(text.length) : null,
         });
       }
+      mainActionsUsed.add("copy");
       navigator.clipboard.writeText(text).then(() => {
         const originalHTML = copyInputBtn.innerHTML;
         copyInputBtn.innerHTML =
@@ -599,6 +666,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // --- Paste Button ---
   pasteBtn.addEventListener("click", () => {
+    const trackPaste = (text) => {
+      if (window.trackEvent) {
+        window.trackEvent("main_paste_used", {
+          char_count_bucket: window.bucketChars
+            ? window.bucketChars((text || "").length)
+            : null,
+          had_text: !!(text && text.length),
+        });
+      }
+      mainActionsUsed.add("paste");
+    };
     navigator.clipboard
       .readText()
       .then((text) => {
@@ -607,6 +685,7 @@ document.addEventListener("DOMContentLoaded", () => {
           inputText.focus();
           chrome.storage.local.set({ lastInput: text });
         }
+        trackPaste(text);
       })
       .catch(() => {
         const tempTextArea = document.createElement("textarea");
@@ -620,11 +699,21 @@ document.addEventListener("DOMContentLoaded", () => {
           chrome.storage.local.set({ lastInput: text });
         }
         document.body.removeChild(tempTextArea);
+        trackPaste(text);
       });
   });
 
   // --- Clear Button ---
   clearBtn.addEventListener("click", () => {
+    if (window.trackEvent) {
+      window.trackEvent("main_clear_used", {
+        target: "input",
+        char_count_bucket: window.bucketChars
+          ? window.bucketChars(inputText.value.length)
+          : null,
+      });
+    }
+    mainActionsUsed.add("clear");
     inputText.value = "";
     inputText.focus();
     chrome.storage.local.set({ lastInput: "" });
