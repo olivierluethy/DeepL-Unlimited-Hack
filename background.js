@@ -63,7 +63,13 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   }
 
   if (msg.type === 'RESUME_DOC') {
-    startDocumentTranslation(msg.id, { resume: true })
+    // trigger forwarded from popup.js — today only "explicit_button"
+    // is wired; "auto_on_load" is reserved for a future auto-resume
+    // path on tab open (not implemented yet, see tracking-events.md).
+    startDocumentTranslation(msg.id, {
+      resume: true,
+      resumeTrigger: msg.trigger || 'explicit_button',
+    })
       .then(() => sendResponse({ ok: true }))
       .catch((err) => sendResponse({ ok: false, error: err.message }));
     return true;
@@ -105,7 +111,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 // stop never loses already-translated work. The resume path picks up at
 // lastProcessedIndex + 1 and re-uses the stored translatedParts.
 async function startDocumentTranslation(docId, opts = {}) {
-  const { resume = false } = opts;
+  const { resume = false, resumeTrigger = 'explicit_button' } = opts;
   const doc = await readPendingDoc(docId);
   if (!doc) throw new Error('Document not found.');
   if (doc.status === 'processing') return; // already running — idempotent
@@ -117,16 +123,36 @@ async function startDocumentTranslation(docId, opts = {}) {
   const totalCharsForAnalytics = (doc.originalText || '').length;
   const batchCountForAnalytics = splitIntoBatches(doc.originalText, BATCH_SIZE).length;
 
-  self.analytics.capture(
-    resume ? 'documents_translation_resumed' : 'documents_translation_started',
-    {
+  // For resumes, measure how long the doc sat in paused/error state
+  // before the user came back. doc.updatedAt is stamped by checkpoint()
+  // on every storage write, so it reflects the moment the doc entered
+  // the resumable state (last successful batch boundary or pause).
+  let timeSinceFailureMs = null;
+  if (resume && doc.updatedAt) {
+    const ts = new Date(doc.updatedAt).getTime();
+    if (!Number.isNaN(ts)) timeSinceFailureMs = Date.now() - ts;
+  }
+
+  if (resume) {
+    self.analytics.capture('documents_translation_resumed', {
       run_id: runId,
       file_type: doc.fileType || 'unknown',
       page_count: doc.pageCount || 0,
       batch_count: batchCountForAnalytics,
       total_char_count_bucket: bucketChars(totalCharsForAnalytics),
-    },
-  );
+      resume_trigger: resumeTrigger,
+      time_since_failure_ms: timeSinceFailureMs,
+      previous_status: doc.status || 'unknown',
+    });
+  } else {
+    self.analytics.capture('documents_translation_started', {
+      run_id: runId,
+      file_type: doc.fileType || 'unknown',
+      page_count: doc.pageCount || 0,
+      batch_count: batchCountForAnalytics,
+      total_char_count_bucket: bucketChars(totalCharsForAnalytics),
+    });
+  }
 
   const deeplTab = await findDeepLTab();
   if (!deeplTab) {
@@ -137,8 +163,10 @@ async function startDocumentTranslation(docId, opts = {}) {
     });
     self.analytics.capture('documents_translation_failed', {
       run_id: runId,
+      file_type: doc.fileType || 'unknown',
       error_type: 'no_deepl_tab',
       batches_completed: 0,
+      batches_total: batchCountForAnalytics,
       duration_ms: Date.now() - runStartedAt,
     });
     throw new Error('No DeepL tab found.');
@@ -279,6 +307,7 @@ async function startDocumentTranslation(docId, opts = {}) {
         });
         self.analytics.capture('documents_translation_failed', {
           run_id: runId,
+          file_type: doc.fileType || 'unknown',
           error_type: reason,
           batches_completed: i,
           batches_total: batches.length,
@@ -310,6 +339,7 @@ async function startDocumentTranslation(docId, opts = {}) {
       run_id: runId,
       file_type: doc.fileType || 'unknown',
       batch_count: batches.length,
+      batches_total: batches.length,
       total_char_count_bucket: bucketChars(totalChars),
       duration_ms: Date.now() - runStartedAt,
     });
@@ -331,7 +361,9 @@ async function startDocumentTranslation(docId, opts = {}) {
     });
     self.analytics.capture('documents_translation_failed', {
       run_id: runId,
+      file_type: doc.fileType || 'unknown',
       error_type: classifyError(err),
+      batches_total: batches.length,
       duration_ms: Date.now() - runStartedAt,
     });
   } finally {

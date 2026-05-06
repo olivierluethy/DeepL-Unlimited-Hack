@@ -57,7 +57,41 @@ function detectFileType(file) {
 document.addEventListener('DOMContentLoaded', () => {
   initUploadUI();
   loadPdfHistory();
+  emitReloadHeuristic();
 });
+
+// Heuristic: did the user reload this page while a translation was
+// pending in paused/error state? That's the implicit "I came back to
+// fix this" signal, separate from the popup-side
+// documents_failed_state_viewed event. Fires once per page mount.
+function emitReloadHeuristic() {
+  if (typeof window === 'undefined' || !window.trackEvent) return;
+  chrome.storage.local.get({ pendingDocuments: [] }, ({ pendingDocuments }) => {
+    const docs = pendingDocuments || [];
+    const failed = docs.filter(
+      (d) => d.status === 'paused' || d.status === 'error',
+    );
+    if (failed.length === 0) return;
+    const mostRecent = failed
+      .slice()
+      .sort(
+        (a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0),
+      )[0];
+    let timeSinceFailureMs = null;
+    if (mostRecent.updatedAt) {
+      const ts = new Date(mostRecent.updatedAt).getTime();
+      if (!Number.isNaN(ts)) timeSinceFailureMs = Date.now() - ts;
+    }
+    window.trackEvent('documents_page_reloaded_during_translation', {
+      pending_status: mostRecent.status,
+      pending_file_type: mostRecent.fileType || 'unknown',
+      paused_count: failed.filter((d) => d.status === 'paused').length,
+      error_count: failed.filter((d) => d.status === 'error').length,
+      pending_count_total: docs.length,
+      time_since_failure_ms: timeSinceFailureMs,
+    });
+  });
+}
 
 // ─── Upload UI wiring ─────────────────────────────────────────────────────────
 function initUploadUI() {
@@ -78,6 +112,16 @@ function initUploadUI() {
     if (detectFileType(file)) {
       handleFileSelected(file);
     } else {
+      if (window.trackEvent) {
+        window.trackEvent('documents_file_rejected', {
+          reason: 'unsupported_file_type',
+          file_size_bucket: window.bucketFileSize
+            ? window.bucketFileSize(file.size)
+            : null,
+          mime_type: file.type || 'unknown',
+          source: 'drop_zone',
+        });
+      }
       showAlert(
         'Unsupported file type. Please drop a PDF, Excel (.xlsx, .xls) or PowerPoint (.pptx) file.',
         'warning',
@@ -103,11 +147,32 @@ function initUploadUI() {
 async function handleFileSelected(file) {
   const fileType = detectFileType(file);
   if (!fileType) {
+    if (window.trackEvent) {
+      window.trackEvent('documents_file_rejected', {
+        reason: 'unsupported_file_type',
+        // No filename — that's PII. Just the size bucket and the
+        // browser-reported MIME, both safe metadata.
+        file_size_bucket: window.bucketFileSize
+          ? window.bucketFileSize(file.size)
+          : null,
+        mime_type: file.type || 'unknown',
+      });
+    }
     showAlert(
       'Unsupported file type. Please pick a PDF, Excel (.xlsx, .xls) or PowerPoint (.pptx) file.',
       'warning',
     );
     return;
+  }
+
+  if (window.trackEvent) {
+    window.trackEvent('documents_file_selected', {
+      file_type: fileType,
+      file_size_bucket: window.bucketFileSize
+        ? window.bucketFileSize(file.size)
+        : null,
+      source: 'fullpage',
+    });
   }
 
   currentFile = file;
@@ -147,6 +212,16 @@ async function handleFileSelected(file) {
         `${result.text.length.toLocaleString()} characters`,
     );
 
+    if (window.trackEvent) {
+      window.trackEvent('documents_extraction_completed', {
+        file_type: fileType,
+        page_count: result.pageCount,
+        total_char_count_bucket: window.bucketChars
+          ? window.bucketChars(result.text.length)
+          : null,
+      });
+    }
+
     // Mirror the upload to the shared pending-documents store so it shows up
     // in the popup. The popup → Documents tab is the only place that can
     // start translation now.
@@ -166,6 +241,24 @@ async function handleFileSelected(file) {
   } catch (err) {
     setStep('extract', 'error');
     updateProgress(0, 'Extraction failed');
+    if (window.trackEvent) {
+      // No filename, no error.message in clear text — message could
+      // contain library internals. Just an error_class derived from
+      // the message keyword.
+      const msg = (err && err.message ? err.message : '').toLowerCase();
+      const errorClass = msg.includes('library not loaded')
+        ? 'library_missing'
+        : msg.includes('no slides')
+          ? 'pptx_no_slides'
+          : 'parse_error';
+      window.trackEvent('documents_extraction_failed', {
+        file_type: fileType,
+        file_size_bucket: window.bucketFileSize
+          ? window.bucketFileSize(file.size)
+          : null,
+        error_class: errorClass,
+      });
+    }
     showAlert('Could not read ' + humanFileType(fileType) + ': ' + err.message, 'danger');
   }
 }

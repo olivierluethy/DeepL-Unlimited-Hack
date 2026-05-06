@@ -89,6 +89,9 @@ document.addEventListener("DOMContentLoaded", () => {
       if (target === "#history") {
         emitHistoryTabViewedState();
       }
+      if (target === "#pdf") {
+        emitDocumentsTabViewedState();
+      }
     });
   });
 
@@ -125,6 +128,50 @@ document.addEventListener("DOMContentLoaded", () => {
         has_entries: verlauf.length > 0,
         entry_count: verlauf.length,
       });
+    });
+  }
+
+  // Documents tab state + (when applicable) failed-state-viewed.
+  // documents_tab_viewed_state fires on every #pdf open. The companion
+  // documents_failed_state_viewed only fires when at least one pending
+  // doc is paused or in error state — it's the "user saw a broken
+  // translation" signal that pairs with the fullpage-side reload event
+  // to answer "do users notice the failure and act on it?".
+  function emitDocumentsTabViewedState() {
+    if (!window.trackEvent) return;
+    chrome.storage.local.get({ pendingDocuments: [] }, ({ pendingDocuments }) => {
+      const docs = pendingDocuments || [];
+      const failed = docs.filter(
+        (d) => d.status === "paused" || d.status === "error",
+      );
+      const pendingFileTypes = [...new Set(docs.map((d) => d.fileType || "unknown"))].sort();
+      window.trackEvent("documents_tab_viewed_state", {
+        has_pending_translation: docs.length > 0,
+        pending_count: docs.length,
+        pending_file_types: pendingFileTypes,
+        has_failed_state: failed.length > 0,
+        failed_count: failed.length,
+      });
+
+      if (failed.length > 0) {
+        // Pick the most-recent failed doc so the per-event properties
+        // are about a single doc; aggregate counts go via
+        // pending_count_total. Multiple paused docs in a single tab
+        // open emit ONE event, not N — avoids dashboard spam.
+        const mostRecent = failed
+          .slice()
+          .sort(
+            (a, b) =>
+              new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0),
+          )[0];
+        window.trackEvent("documents_failed_state_viewed", {
+          pending_status: mostRecent.status,
+          pending_file_type: mostRecent.fileType || "unknown",
+          paused_count: failed.filter((d) => d.status === "paused").length,
+          error_count: failed.filter((d) => d.status === "error").length,
+          pending_count_total: docs.length,
+        });
+      }
     });
   }
 
@@ -1088,11 +1135,16 @@ document.addEventListener("DOMContentLoaded", () => {
 
 document.getElementById("openFullPageBtn").addEventListener("click", async () => {
   const url = chrome.runtime.getURL("fullpage.html");
-  
+
   // Suche nach Tabs mit genau dieser URL
   const tabs = await chrome.tabs.query({ url: url });
+  const reopened = tabs.length > 0;
 
-  if (tabs.length > 0) {
+  if (window.trackEvent) {
+    window.trackEvent("documents_open_fullpage_clicked", { reopened });
+  }
+
+  if (reopened) {
     // Tab existiert bereits -> in den Vordergrund holen
     chrome.tabs.update(tabs[0].id, { active: true });
     // Optional: Auch das Fenster des Tabs fokussieren
@@ -1135,12 +1187,29 @@ function initPendingDocsList() {
     const id = btn.dataset.docId;
     const action = btn.dataset.docAction;
     if (action === "start") {
+      // documents_translation_started fires from the SW when the run
+      // actually begins (and again on each restart of a completed
+      // doc). The popup-side click intent is the SW's responsibility
+      // to translate into a real run, so we don't double-track here.
       chrome.runtime.sendMessage({ type: "START_DOC", id });
     } else if (action === "resume") {
-      chrome.runtime.sendMessage({ type: "RESUME_DOC", id });
+      // Click intent — paired with documents_translation_resumed
+      // emitted from background.js. The pair lets us measure
+      // "user clicks Resume" vs "Resume actually completes".
+      if (window.trackEvent) {
+        window.trackEvent("documents_resume_button_clicked", {});
+      }
+      chrome.runtime.sendMessage({
+        type: "RESUME_DOC",
+        id,
+        trigger: "explicit_button",
+      });
     } else if (action === "stop") {
       chrome.runtime.sendMessage({ type: "STOP_DOC", id });
     } else if (action === "delete") {
+      if (window.trackEvent) {
+        window.trackEvent("documents_pending_doc_deleted", {});
+      }
       deletePendingDoc(id);
     }
   });

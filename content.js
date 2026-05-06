@@ -560,10 +560,17 @@ function waitForStableTranslation(inputLength, inputWordCount, chunkIndex) {
         return;
       }
 
-      // Timeout fallback. If the output never appeared at all, treat it
-      // as a char-limit hit (paywall detection may have missed the
-      // selector); if we got *something* but it never stabilised, the
-      // safer call is 'timeout' so the user can just retry.
+      // Timeout fallback. If the output never appeared at all AND the
+      // paywall was detected, it's a char-limit hit; if no paywall is
+      // visible, it's a genuine timeout (DeepL silently never produced
+      // output). If we got *something* but it never stabilised, also
+      // treat as timeout so the user can just retry.
+      //
+      // Bugfix in this commit: the false-branch used to also report
+      // "char_limit", so every silent-empty timeout was misclassified
+      // as a paywall hit in the documents_translation_failed event.
+      // PostHog error_type counts before this commit are biased — the
+      // "char_limit" tally lumps paywall + true-timeout together.
       if (attempts >= maxAttempts) {
         clearInterval(checkInterval);
         console.warn(`[Chunk ${chunkIndex}] Timeout reached, current=${currentText.length} chars`);
@@ -571,7 +578,7 @@ function waitForStableTranslation(inputLength, inputWordCount, chunkIndex) {
           resolve({
             ok: false,
             text: "",
-            errorType: detectDeepLLimit() ? "char_limit" : "char_limit",
+            errorType: detectDeepLLimit() ? "char_limit" : "timeout",
           });
         } else {
           resolve({ ok: false, text: currentText, errorType: "timeout" });
