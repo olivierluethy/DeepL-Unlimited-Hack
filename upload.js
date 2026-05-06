@@ -52,8 +52,8 @@ document.getElementById("fileUpload").addEventListener("change", function (event
     renderUploadEntry(fileEntry);
   });
 
-  if (window.track) {
-    window.track("document_uploaded", {
+  if (window.trackEvent) {
+    window.trackEvent("document_uploaded", {
       file_type: ext,
       size_bucket:
         file.size < 50_000

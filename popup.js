@@ -10,14 +10,14 @@ document.addEventListener("DOMContentLoaded", () => {
   const swapBtn = document.getElementById("swapBtn");
 
   // Anonymous usage analytics. See options page / privacy policy for the
-  // full list of what is and isn't collected. window.track and
+  // full list of what is and isn't collected. window.trackEvent and
   // window.bucketChars come from track.js (loaded earlier).
-  if (window.track) window.track("popup_opened");
+  if (window.trackEvent) window.trackEvent("popup_opened");
 
   const settingsBtn = document.getElementById("settingsBtn");
   if (settingsBtn) {
     settingsBtn.addEventListener("click", () => {
-      if (window.track) window.track("settings_opened");
+      if (window.trackEvent) window.trackEvent("settings_opened");
       chrome.runtime.openOptionsPage();
     });
   }
@@ -61,8 +61,8 @@ document.addEventListener("DOMContentLoaded", () => {
       if (target === "#history") {
         loadHistory();
       }
-      if (window.track) {
-        window.track("popup_tab_viewed", { tab: (target || "").replace("#", "") });
+      if (window.trackEvent) {
+        window.trackEvent("popup_tab_viewed", { tab: (target || "").replace("#", "") });
       }
     });
   });
@@ -119,8 +119,8 @@ document.addEventListener("DOMContentLoaded", () => {
   document.getElementById("bulkCopyBtn").addEventListener("click", () => {
     const selected = currentVerlauf.filter((e) => selectedIds.has(e.id));
     const text = selected.map((e) => e.translated).join("\n\n---\n\n");
-    if (window.track) {
-      window.track("result_copied", {
+    if (window.trackEvent) {
+      window.trackEvent("result_copied", {
         target: "history_bulk",
         count: selected.length,
         char_count_bucket: window.bucketChars ? window.bucketChars(text.length) : null,
@@ -344,8 +344,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const charBucket = window.bucketChars ? window.bucketChars(text.length) : null;
     const translationStartedAt = Date.now();
-    if (window.track) {
-      window.track("translation_started", {
+    if (window.trackEvent) {
+      window.trackEvent("translation_started", {
         trigger: "popup_main",
         char_count_bucket: charBucket,
       });
@@ -396,8 +396,8 @@ document.addEventListener("DOMContentLoaded", () => {
       clearInterval(progressInterval);
 
       if (result.success) {
-        if (window.track) {
-          window.track("translation_completed", {
+        if (window.trackEvent) {
+          window.trackEvent("translation_completed", {
             trigger: "popup_main",
             char_count_bucket: charBucket,
             duration_ms: Date.now() - translationStartedAt,
@@ -429,7 +429,7 @@ document.addEventListener("DOMContentLoaded", () => {
     } catch (error) {
       clearInterval(progressInterval);
       console.error("Translation error:", error);
-      if (window.track) {
+      if (window.trackEvent) {
         const msg = (error && error.message ? error.message : "").toLowerCase();
         const errorType = msg.includes("timeout")
           ? "timeout"
@@ -438,7 +438,7 @@ document.addEventListener("DOMContentLoaded", () => {
             : msg.includes("network") || msg.includes("fetch")
               ? "network"
               : "other";
-        window.track("translation_failed", {
+        window.trackEvent("translation_failed", {
           trigger: "popup_main",
           char_count_bucket: charBucket,
           error_type: errorType,
@@ -494,7 +494,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // Swap Button
   swapBtn.addEventListener("click", () => {
-    if (window.track) window.track("swap_used");
+    if (window.trackEvent) window.trackEvent("swap_used");
     swapBtn.style.transform = "rotate(180deg)";
     swapBtn.style.transition = "transform 0.3s ease";
 
@@ -530,8 +530,8 @@ document.addEventListener("DOMContentLoaded", () => {
   magicFixBtn.addEventListener("click", () => {
     let text = inputText.value;
     if (!text) return;
-    if (window.track) {
-      window.track("magic_fix_used", {
+    if (window.trackEvent) {
+      window.trackEvent("magic_fix_used", {
         char_count_bucket: window.bucketChars ? window.bucketChars(text.length) : null,
       });
     }
@@ -558,8 +558,8 @@ document.addEventListener("DOMContentLoaded", () => {
   copyInputBtn.addEventListener("click", () => {
     const text = inputText.value;
     if (text) {
-      if (window.track) {
-        window.track("result_copied", {
+      if (window.trackEvent) {
+        window.trackEvent("result_copied", {
           target: "input",
           char_count_bucket: window.bucketChars ? window.bucketChars(text.length) : null,
         });

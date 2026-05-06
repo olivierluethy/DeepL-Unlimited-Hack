@@ -222,8 +222,8 @@ async function startGroupTranslation(entryDiv) {
     }
 
     loopIterationsTotal = subEntries.length;
-    if (window.track) {
-      window.track("loop_run_started", {
+    if (window.trackEvent) {
+      window.trackEvent("loop_run_started", {
         iteration_count: loopIterationsTotal,
       });
     }
@@ -304,7 +304,7 @@ async function startGroupTranslation(entryDiv) {
       showToast(`All ${successCount} translations completed!`);
     }
 
-    if (window.track && loopIterationsTotal > 0) {
+    if (window.trackEvent && loopIterationsTotal > 0) {
       const props = {
         iteration_count: loopIterationsTotal,
         iterations_completed: loopIterationsCompleted,
@@ -312,18 +312,18 @@ async function startGroupTranslation(entryDiv) {
         duration_ms: Date.now() - loopStartedAt,
       };
       if (stopTranslation) {
-        window.track("loop_run_cancelled", props);
+        window.trackEvent("loop_run_cancelled", props);
       } else if (failCount > 0) {
-        window.track("loop_run_failed", props);
+        window.trackEvent("loop_run_failed", props);
       } else {
-        window.track("loop_run_completed", props);
+        window.trackEvent("loop_run_completed", props);
       }
       loopEventEmitted = true;
     }
 
   } catch (err) {
-    if (window.track && loopIterationsTotal > 0 && !loopEventEmitted) {
-      window.track("loop_run_failed", {
+    if (window.trackEvent && loopIterationsTotal > 0 && !loopEventEmitted) {
+      window.trackEvent("loop_run_failed", {
         iteration_count: loopIterationsTotal,
         iterations_completed: loopIterationsCompleted,
         duration_ms: Date.now() - loopStartedAt,
