@@ -171,6 +171,7 @@ async function handleFileSelected(file) {
       file_size_bucket: window.bucketFileSize
         ? window.bucketFileSize(file.size)
         : null,
+      mime_type: file.type || 'unknown',
       source: 'fullpage',
     });
   }
@@ -195,6 +196,10 @@ async function handleFileSelected(file) {
   setStep('extract', 'active');
   updateProgress(5, readingMessageFor(fileType));
 
+  // Time the extraction. Read on the success path so we can attach
+  // extraction_duration_ms to the analytics event.
+  const extractionStartedAt = Date.now();
+
   try {
     const result = await extractTextForType(fileType, file);
     extractedText = result.text;
@@ -213,12 +218,22 @@ async function handleFileSelected(file) {
     );
 
     if (window.trackEvent) {
+      // PRIVACY: char count only, never the extracted text itself.
+      const extractedCharsExact = result.text.length;
+      const extractedBucket = window.bucketChars
+        ? window.bucketChars(extractedCharsExact)
+        : null;
       window.trackEvent('documents_extraction_completed', {
         file_type: fileType,
         page_count: result.pageCount,
-        total_char_count_bucket: window.bucketChars
-          ? window.bucketChars(result.text.length)
-          : null,
+        // legacy property — kept for dashboard backward-compat
+        total_char_count_bucket: extractedBucket,
+        // canonical "extracted" naming on this event (it's distinct
+        // from the eventual "translated" count emitted by the SW)
+        extracted_char_count_bucket: extractedBucket,
+        extracted_char_count_exact: extractedCharsExact,
+        extraction_duration_ms: Date.now() - extractionStartedAt,
+        mime_type: file.type || 'unknown',
       });
     }
 

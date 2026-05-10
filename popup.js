@@ -44,6 +44,20 @@ document.addEventListener("DOMContentLoaded", () => {
     mainActionsUsed.clear();
   }
 
+  // Timestamp of the most recent paste action in this popup mount.
+  // Read from the Send-to-DeepL handler to compute `was_pasted` —
+  // distinguishes "user pasted from clipboard, hit send" (likely
+  // automation / bulk workflows) from "user typed by hand".
+  // Default 0 — guarantees first send is treated as not-just-pasted
+  // since (Date.now() - 0) is always > the WAS_PASTED_WINDOW_MS gate.
+  let mainLastPasteAt = 0;
+  const WAS_PASTED_WINDOW_MS = 5000;
+
+  // parseDeepLLangs() and normalizeErrorType() live in js/deepl-utils.js
+  // (loaded before track.js) and attach to window. Same canonical
+  // implementation is used by the SW for documents-flow events, so
+  // PostHog filters across main and documents flows line up.
+
   // ─── Documents tab: pending uploads (driven by background.js) ──────────────
   // The popup is transient — translation lives in the service worker. This
   // block just renders the list and ships START_DOC / STOP_DOC / DELETE_DOC
@@ -68,12 +82,130 @@ document.addEventListener("DOMContentLoaded", () => {
   );
   tooltipTriggerList.forEach((el) => new bootstrap.Tooltip(el));
 
+  // ─── Tab-dwell tracking (popup_tab_dwell) ────────────────────────────────
+  // Track time spent on each tab + whether the user actually
+  // interacted with anything inside it. Two firing paths:
+  //
+  //   1. On tab-switch: emit popup_tab_dwell for the LEAVING tab
+  //      directly from the popup (this code).
+  //   2. On popup-close: the popup-side can't reliably emit anything
+  //      because the popup window dies before async messages land.
+  //      We open a long-lived port to the SW; the SW gets a reliable
+  //      onDisconnect signal and emits popup_tab_dwell for whatever
+  //      tab was last active. State is mirrored to the SW over the
+  //      port whenever it changes here.
+  //
+  // Pure-view events (popup_opened, *_tab_viewed_state, …) DO NOT
+  // count as interactions. The wrapper around window.trackEvent below
+  // is what flips currentTabHadInteraction = true.
+  const PURE_VIEW_EVENTS = new Set([
+    "popup_opened",
+    "popup_tab_viewed",
+    "popup_tab_dwell",
+    "main_session_summary",
+    "loop_tab_viewed_state",
+    "history_tab_viewed_state",
+    "documents_tab_viewed_state",
+    "documents_failed_state_viewed",
+    "documents_page_reloaded_during_translation",
+    "user_monthly_summary",
+    "paywall_eligibility_check",
+    "extension_installed",
+    "extension_updated",
+  ]);
+
+  // Detect the initial active tab from Bootstrap markup. If nothing
+  // is marked .active we fall back to "main" — that's the default
+  // landing tab and the safest guess.
+  function detectInitialTabHref() {
+    const active = document.querySelector('#appTabs a.active[data-bs-toggle="tab"]');
+    return active ? active.getAttribute("href") : "#main";
+  }
+
+  let currentTabHref = detectInitialTabHref();
+  let currentTabEnteredAt = Date.now();
+  let currentTabHadInteraction = false;
+
+  // Long-lived port to the SW. Connection survives the popup's life.
+  // The SW's onDisconnect listener fires popup_tab_dwell for the
+  // tab that was active when the popup closed, using the most
+  // recent state we sent via sendDwellState() below.
+  let dwellPort = null;
+  try {
+    dwellPort = chrome.runtime.connect({ name: "popup_dwell" });
+  } catch (err) {
+    console.warn("[dwell] connect failed:", err);
+  }
+
+  function tabSlugFromHref(href) {
+    return (href || "").replace(/^#/, "") || "unknown";
+  }
+
+  function sendDwellState() {
+    if (!dwellPort) return;
+    try {
+      dwellPort.postMessage({
+        type: "state",
+        popup_session_id: window.popupSessionId ? window.popupSessionId() : null,
+        tab: tabSlugFromHref(currentTabHref),
+        entered_at: currentTabEnteredAt,
+        had_interaction: currentTabHadInteraction,
+      });
+    } catch (err) {
+      // Port may have been torn down — disconnect listener on the SW
+      // will still fire and do its job from last-known state.
+      dwellPort = null;
+    }
+  }
+
+  // Tab-switch fire path — emit popup_tab_dwell for the LEAVING tab.
+  function fireTabSwitchDwell(previousHref) {
+    if (!previousHref) return;
+    if (!window.trackEvent) return;
+    window.trackEvent("popup_tab_dwell", {
+      tab: tabSlugFromHref(previousHref),
+      dwell_ms: Date.now() - currentTabEnteredAt,
+      had_interaction: currentTabHadInteraction,
+      closed_via: "tab_switch",
+    });
+  }
+
+  // Wrap window.trackEvent so any non-pure-view event inside the
+  // popup flips currentTabHadInteraction. This is the cheapest way
+  // to mark interaction without sprinkling explicit calls at every
+  // event site. The wrapper preserves the original signature.
+  if (typeof window.trackEvent === "function") {
+    const _origTrackEvent = window.trackEvent;
+    window.trackEvent = function (eventName, props) {
+      if (!PURE_VIEW_EVENTS.has(eventName) && !currentTabHadInteraction) {
+        currentTabHadInteraction = true;
+        sendDwellState();
+      }
+      return _origTrackEvent.apply(this, arguments);
+    };
+  }
+
+  // Initial state push. SW now knows what tab is active so the
+  // disconnect handler can fire dwell even if the user closes the
+  // popup without ever switching tabs.
+  sendDwellState();
+
   // Initialisiere Bootstrap Tabs
   const tabList = document.querySelectorAll('#appTabs a[data-bs-toggle="tab"]');
   tabList.forEach((tab) => {
     tab.addEventListener("shown.bs.tab", (event) => {
       const target = event.target.getAttribute("href");
       const previous = event.relatedTarget && event.relatedTarget.getAttribute("href");
+
+      // Dwell event for the leaving tab BEFORE we update state.
+      fireTabSwitchDwell(previous);
+
+      // Roll state forward for the new tab.
+      currentTabHref = target;
+      currentTabEnteredAt = Date.now();
+      currentTabHadInteraction = false;
+      sendDwellState();
+
       if (previous === "#main") {
         flushMainSessionSummary();
       }
@@ -448,28 +580,50 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- Send to DeepL Button (UPDATED with Progress Bar) ---
   sendBtn.addEventListener("click", async () => {
     const text = inputText.value.trim();
+    // PRIVACY: char counts only — we never send the source or
+    // translated text to PostHog. Exact integers let us compute
+    // precise per-month distributions for paywall calibration.
+    const inputCharsExact = text.length;
     const charBucketPre = window.bucketChars
-      ? window.bucketChars(text.length)
+      ? window.bucketChars(inputCharsExact)
       : null;
+    const wasPasted =
+      mainLastPasteAt > 0 &&
+      Date.now() - mainLastPasteAt < WAS_PASTED_WINDOW_MS;
+
+    // Lang pair detection up front so it lands on click + every
+    // downstream main_translation_* event for the same intent.
+    const [tabForLang] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
+    const langs = window.parseDeepLLangs
+      ? window.parseDeepLLangs(tabForLang && tabForLang.url)
+      : { lang_from: null, lang_to: null };
 
     // Pre-validation event — fires for every Send press, even when we
     // bail because of empty input or a non-DeepL tab. main_translation_*
     // only fires for actual run attempts; this captures user intent.
     if (window.trackEvent) {
       window.trackEvent("main_send_to_deepl_clicked", {
+        // legacy property — kept for dashboard backward-compat
         char_count_bucket: charBucketPre,
-        has_text: text.length > 0,
+        // canonical input/output naming going forward
+        input_char_count_bucket: charBucketPre,
+        // PRIVACY: char count only, never the source text
+        input_char_count_exact: inputCharsExact,
+        has_text: inputCharsExact > 0,
         trigger: "button",
+        lang_from: langs.lang_from,
+        lang_to: langs.lang_to,
+        was_pasted: wasPasted,
       });
     }
     mainActionsUsed.add("send");
 
     if (!text) return alert("Please enter text.");
 
-    const [tab] = await chrome.tabs.query({
-      active: true,
-      currentWindow: true,
-    });
+    const tab = tabForLang;
 
     const deeplRegex =
       /^https:\/\/www\.deepl\.com\/[^\/]+\/(translate|write|translator)/;
@@ -479,6 +633,13 @@ document.addEventListener("DOMContentLoaded", () => {
         window.trackEvent("main_send_aborted", {
           reason: "deepl_not_open",
           char_count_bucket: charBucketPre,
+          input_char_count_bucket: charBucketPre,
+          // PRIVACY: char count only, never the source text
+          input_char_count_exact: inputCharsExact,
+          batches_completed: 0,
+          duration_ms: 0,
+          lang_from: langs.lang_from,
+          lang_to: langs.lang_to,
         });
       }
       return alert(
@@ -487,10 +648,32 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const charBucket = charBucketPre;
+    // Per-run correlator. Joins started → completed/failed pairs in
+    // PostHog so you can compute per-run duration distributions, etc.
+    const runId =
+      typeof crypto !== "undefined" && crypto.randomUUID
+        ? crypto.randomUUID()
+        : "run-" + Date.now() + "-" + Math.random().toString(36).slice(2, 10);
     const translationStartedAt = Date.now();
+
+    // Paywall-readiness baseline. Fires AFTER validation passes (so
+    // it represents an actionable intent — empty/aborted clicks
+    // don't show up). The SW reads the live monthly tracker and
+    // emits paywall_eligibility_check with would_paywall_at_*
+    // flags computed against tracker_state + this attempt.
+    if (window.firePaywallEligibilityCheck) {
+      window.firePaywallEligibilityCheck("main", inputCharsExact);
+    }
+
     if (window.trackEvent) {
       window.trackEvent("main_translation_started", {
         char_count_bucket: charBucket,
+        input_char_count_bucket: charBucket,
+        // PRIVACY: char count only, never the source text
+        input_char_count_exact: inputCharsExact,
+        lang_from: langs.lang_from,
+        lang_to: langs.lang_to,
+        run_id: runId,
       });
     }
 
@@ -532,6 +715,10 @@ document.addEventListener("DOMContentLoaded", () => {
       }
     }, 1000);
 
+    // Set when the in-line `result.success === false` branch has
+    // already fired main_translation_failed — guards the catch
+    // below from emitting a duplicate event for the same run.
+    let runHadFailureTracked = false;
     try {
       // Wait for actual completion signal
       const result = await sendTextToDeepLAndWait(text, 120000);
@@ -539,10 +726,36 @@ document.addEventListener("DOMContentLoaded", () => {
       clearInterval(progressInterval);
 
       if (result.success) {
+        // PRIVACY: char counts only — translatedLength is an integer
+        // returned by content.js, never the translated text itself.
+        const outputCharsExact =
+          typeof result.translatedLength === "number"
+            ? result.translatedLength
+            : null;
+        const outputBucket =
+          outputCharsExact != null && window.bucketChars
+            ? window.bucketChars(outputCharsExact)
+            : null;
         if (window.trackEvent) {
           window.trackEvent("main_translation_completed", {
             char_count_bucket: charBucket,
+            input_char_count_bucket: charBucket,
+            input_char_count_exact: inputCharsExact,
+            output_char_count_bucket: outputBucket,
+            output_char_count_exact: outputCharsExact,
+            lang_from: langs.lang_from,
+            lang_to: langs.lang_to,
             duration_ms: Date.now() - translationStartedAt,
+            // batchCount / batchesCompleted come from content.js
+            // DEEPL_TRANSLATION_COMPLETE — null on older content
+            // scripts that don't yet ship the field.
+            batch_count:
+              typeof result.batchCount === "number" ? result.batchCount : null,
+            batches_completed:
+              typeof result.batchesCompleted === "number"
+                ? result.batchesCompleted
+                : null,
+            run_id: runId,
           });
         }
         updateMainProgressBar(
@@ -566,14 +779,42 @@ document.addEventListener("DOMContentLoaded", () => {
 
         removeMainProgressBar(3000);
       } else {
+        // In-line failure tracking — emit BEFORE rethrowing so we can
+        // include batch_count / batches_completed from the result
+        // object (the existing throw drops them). The catch below
+        // skips its own emit because runHadFailureTracked is now true.
+        runHadFailureTracked = true;
+        if (window.trackEvent) {
+          window.trackEvent("main_translation_failed", {
+            char_count_bucket: charBucket,
+            input_char_count_bucket: charBucket,
+            // PRIVACY: char count only, never the source text
+            input_char_count_exact: inputCharsExact,
+            error_type: window.normalizeErrorType
+              ? window.normalizeErrorType(result.errorType)
+              : (result.errorType || "other"),
+            duration_ms: Date.now() - translationStartedAt,
+            batches_completed:
+              typeof result.batchesCompleted === "number"
+                ? result.batchesCompleted
+                : null,
+            batches_total:
+              typeof result.batchCount === "number" ? result.batchCount : null,
+            lang_from: langs.lang_from,
+            lang_to: langs.lang_to,
+            run_id: runId,
+          });
+        }
         throw new Error(result.error || "Translation failed");
       }
     } catch (error) {
       clearInterval(progressInterval);
       console.error("Translation error:", error);
-      if (window.trackEvent) {
+      if (window.trackEvent && !runHadFailureTracked) {
+        // Exception path: timeout, network blip, scripting failure.
+        // No `result` object here — batch counts are unknown.
         const msg = (error && error.message ? error.message : "").toLowerCase();
-        const errorType = msg.includes("timeout")
+        const rawErrorType = msg.includes("timeout")
           ? "timeout"
           : msg.includes("rate") || msg.includes("429")
             ? "rate_limited"
@@ -582,8 +823,18 @@ document.addEventListener("DOMContentLoaded", () => {
               : "other";
         window.trackEvent("main_translation_failed", {
           char_count_bucket: charBucket,
-          error_type: errorType,
+          input_char_count_bucket: charBucket,
+          // PRIVACY: char count only, never the source text
+          input_char_count_exact: inputCharsExact,
+          error_type: window.normalizeErrorType
+            ? window.normalizeErrorType(rawErrorType)
+            : rawErrorType,
           duration_ms: Date.now() - translationStartedAt,
+          batches_completed: null,
+          batches_total: null,
+          lang_from: langs.lang_from,
+          lang_to: langs.lang_to,
+          run_id: runId,
         });
       }
 
@@ -745,6 +996,10 @@ document.addEventListener("DOMContentLoaded", () => {
   // --- Paste Button ---
   pasteBtn.addEventListener("click", () => {
     const trackPaste = (text) => {
+      // Stamp the paste timestamp for the Send-to-DeepL handler's
+      // was_pasted heuristic. Stamp regardless of clipboard contents
+      // (an empty clipboard click still represents paste-intent).
+      mainLastPasteAt = Date.now();
       if (window.trackEvent) {
         window.trackEvent("main_paste_used", {
           char_count_bucket: window.bucketChars

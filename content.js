@@ -147,6 +147,10 @@ window.addEventListener("message", async (event) => {
       errorType: failure.errorType,
       error: failure.error,
       originalLength: fullText.length,
+      // Tracking metadata — `i` is the index of the chunk that broke;
+      // chunks completed before it = `i`. batchCount = total planned.
+      batchCount: chunks.length,
+      batchesCompleted: i,
     }).catch(() => {});
     return;
   }
@@ -173,6 +177,10 @@ window.addEventListener("message", async (event) => {
       originalLength: fullText.length,
       translatedLength: finalText.length,
       translatedText: finalText, // lets the orchestrator skip the verlauf lookup
+      // Tracking metadata — total chunk count for this run.
+      // On the success path batchesCompleted === batchCount by definition.
+      batchCount: chunks.length,
+      batchesCompleted: chunks.length,
     }).catch(() => {});
   };
 

@@ -11,6 +11,15 @@
 // both surfaces, fullpage.js removes its document from pendingDocuments
 // on completion. Both flows reuse content.js's DEEPL_TRANSLATE protocol.
 
+// Shared bucket helpers (bucketChars, bucketFileSize). MUST load before
+// analytics.js / paywall.js so anything they fire from top-level has the
+// helpers available. Single source of truth — see js/buckets.js.
+importScripts('js/buckets.js');
+
+// Shared DeepL helpers (parseDeepLLangs, normalizeErrorType). Same
+// rationale — load before any module that fires translation events.
+importScripts('js/deepl-utils.js');
+
 // Anonymous usage analytics. Loaded as a classic script so it can hang
 // off `self.analytics` and we don't have to flip the SW to module type.
 // Listeners (alarm, onMessage for analytics:*) register inside
@@ -20,16 +29,8 @@ self.analytics.initAnalytics();
 
 chrome.runtime.setUninstallURL("https://forms.gle/cFNf17u5CxSQ8d6t6");
 
-// Char-count buckets used for analytics props. Mirrors track.js so the
-// popup-side and SW-side numbers line up in PostHog dashboards.
-function bucketChars(n) {
-  if (n < 500) return '0-500';
-  if (n < 2000) return '500-2k';
-  if (n < 5000) return '2k-5k';
-  if (n < 10000) return '5k-10k';
-  if (n < 25000) return '10k-25k';
-  return '25k+';
-}
+// bucketChars() lives in js/buckets.js (shared with popup-side track.js)
+// and is attached to `self`. Reference here only.
 
 function classifyError(err) {
   const msg = (err && err.message ? err.message : String(err || '')).toLowerCase();
@@ -123,6 +124,41 @@ async function startDocumentTranslation(docId, opts = {}) {
   const totalCharsForAnalytics = (doc.originalText || '').length;
   const batchCountForAnalytics = splitIntoBatches(doc.originalText, BATCH_SIZE).length;
 
+  // Tab + language detection up front, BEFORE the started/resumed
+  // event fires. This way every analytics event for this run carries
+  // the same {lang_from, lang_to} pair derived from the same tab URL.
+  // If there's no DeepL tab, langs stay null — never fall back to a
+  // default like en/de; that would silently corrupt language-pair
+  // distributions in PostHog.
+  const deeplTab = await findDeepLTab();
+  const langs = self.parseDeepLLangs
+    ? self.parseDeepLLangs(deeplTab && deeplTab.url)
+    : { lang_from: null, lang_to: null };
+
+  // Stuck-user counter snapshot at run-start. Attached to every event
+  // for this run as `consecutive_char_limit_failures`. Failed events
+  // with error_type === 'char_limit' override this with the bumped
+  // value (post-increment); the completed event resets it and emits
+  // the prior value as `consecutive_char_limit_failures_before_success`.
+  const consecutiveAtStart = self.analytics.getConsecutiveCharLimitFailures
+    ? await self.analytics.getConsecutiveCharLimitFailures()
+    : 0;
+
+  // Properties shared by every analytics event in this run. Spread
+  // into each capture() call so they stay consistent — never edit
+  // these fields per-event without thinking about whether the event
+  // is the right place for the divergence.
+  const runEventBase = {
+    run_id: runId,
+    file_type: doc.fileType || 'unknown',
+    lang_from: langs.lang_from,
+    lang_to: langs.lang_to,
+    total_char_count_bucket: bucketChars(totalCharsForAnalytics),
+    // PRIVACY: char count only, never the source/translated text.
+    total_char_count_exact: totalCharsForAnalytics,
+    consecutive_char_limit_failures: consecutiveAtStart,
+  };
+
   // For resumes, measure how long the doc sat in paused/error state
   // before the user came back. doc.updatedAt is stamped by checkpoint()
   // on every storage write, so it reflects the moment the doc entered
@@ -135,26 +171,31 @@ async function startDocumentTranslation(docId, opts = {}) {
 
   if (resume) {
     self.analytics.capture('documents_translation_resumed', {
-      run_id: runId,
-      file_type: doc.fileType || 'unknown',
+      ...runEventBase,
       page_count: doc.pageCount || 0,
       batch_count: batchCountForAnalytics,
-      total_char_count_bucket: bucketChars(totalCharsForAnalytics),
       resume_trigger: resumeTrigger,
       time_since_failure_ms: timeSinceFailureMs,
       previous_status: doc.status || 'unknown',
     });
   } else {
+    // Paywall-readiness baseline — only on fresh starts, not resumes
+    // (resumes belong to a previously-started run that was already
+    // counted from the user's intent-side perspective).
+    if (self.analytics && self.analytics.paywallEligibilityCheck) {
+      await self.analytics.paywallEligibilityCheck(
+        'documents',
+        totalCharsForAnalytics,
+        doc.fileType || 'unknown',
+      );
+    }
     self.analytics.capture('documents_translation_started', {
-      run_id: runId,
-      file_type: doc.fileType || 'unknown',
+      ...runEventBase,
       page_count: doc.pageCount || 0,
       batch_count: batchCountForAnalytics,
-      total_char_count_bucket: bucketChars(totalCharsForAnalytics),
     });
   }
 
-  const deeplTab = await findDeepLTab();
   if (!deeplTab) {
     await pauseDoc(docId, {
       pausedReason: 'no_deepl_tab',
@@ -162,9 +203,10 @@ async function startDocumentTranslation(docId, opts = {}) {
       currentStep: resume ? 'resume_blocked_no_tab' : 'start_blocked_no_tab',
     });
     self.analytics.capture('documents_translation_failed', {
-      run_id: runId,
-      file_type: doc.fileType || 'unknown',
-      error_type: 'no_deepl_tab',
+      ...runEventBase,
+      error_type: self.normalizeErrorType
+        ? self.normalizeErrorType('no_deepl_tab')
+        : 'no_deepl_tab',
       batches_completed: 0,
       batches_total: batchCountForAnalytics,
       duration_ms: Date.now() - runStartedAt,
@@ -196,6 +238,11 @@ async function startDocumentTranslation(docId, opts = {}) {
   for (let k = 0; k < startIndex && k < batches.length; k++) {
     completedBatchChars += batches[k].length;
   }
+  // Counter visible to the catch branch. `let i` in the for-loop is
+  // block-scoped, so the unexpected-error handler below can't read
+  // the loop index directly. Resumes start at startIndex (those
+  // batches were completed in a previous run-effort).
+  let batchesCompletedCount = startIndex;
 
   // Initial checkpoint. On a fresh start we wipe stale fields so a re-run
   // of a completed doc begins clean. On resume we keep translatedParts and
@@ -305,10 +352,24 @@ async function startDocumentTranslation(docId, opts = {}) {
           totalCharacters: totalChars,
           currentStep: `paused_at_batch_${i}_${reason}`,
         });
+        // Bump the stuck-user counter on char_limit failures — the
+        // ONLY classifier that produces 'char_limit'. Override the
+        // runEventBase value so this event reflects the post-bump
+        // count. Other failure types leave the counter alone.
+        const normalizedReason = self.normalizeErrorType
+          ? self.normalizeErrorType(reason)
+          : reason;
+        let consecutiveForEvent = consecutiveAtStart;
+        if (
+          normalizedReason === 'char_limit' &&
+          self.analytics.bumpConsecutiveCharLimitFailures
+        ) {
+          consecutiveForEvent = await self.analytics.bumpConsecutiveCharLimitFailures();
+        }
         self.analytics.capture('documents_translation_failed', {
-          run_id: runId,
-          file_type: doc.fileType || 'unknown',
-          error_type: reason,
+          ...runEventBase,
+          consecutive_char_limit_failures: consecutiveForEvent,
+          error_type: normalizedReason,
           batches_completed: i,
           batches_total: batches.length,
           duration_ms: Date.now() - runStartedAt,
@@ -318,6 +379,7 @@ async function startDocumentTranslation(docId, opts = {}) {
 
       translatedParts.push(result.translatedText || '');
       completedBatchChars += batch.length;
+      batchesCompletedCount = i + 1;
 
       // Atomic checkpoint at the batch boundary: this is the durable
       // resume point. Chunk-level progress is best-effort UI; this row
@@ -335,12 +397,33 @@ async function startDocumentTranslation(docId, opts = {}) {
 
     const translatedText = translatedParts.join('\n\n');
     await completeDocument(doc, translatedText);
+    // PRIVACY: char counts only — translatedText.length is an integer
+    // we already compute for the doc record; we do NOT send the text.
+    const outputCharsExact = translatedText.length;
+
+    // Reset the stuck-user counter. The prior value goes onto the
+    // event as consecutive_char_limit_failures_before_success — that
+    // single property answers "how many times did this user hit the
+    // wall before this run finally succeeded?" without correlating
+    // sequences in PostHog.
+    const consecutiveBeforeSuccess = self.analytics.resetConsecutiveCharLimitFailures
+      ? await self.analytics.resetConsecutiveCharLimitFailures()
+      : 0;
+
     self.analytics.capture('documents_translation_completed', {
-      run_id: runId,
-      file_type: doc.fileType || 'unknown',
+      ...runEventBase,
+      // Override runEventBase value — the counter has just been reset.
+      consecutive_char_limit_failures: 0,
+      consecutive_char_limit_failures_before_success: consecutiveBeforeSuccess,
       batch_count: batches.length,
       batches_total: batches.length,
-      total_char_count_bucket: bucketChars(totalChars),
+      batches_completed: batches.length,
+      // Input chars in the canonical naming (alongside total_char_*
+      // from runEventBase, which we keep for backward-compat).
+      input_char_count_bucket: bucketChars(totalCharsForAnalytics),
+      input_char_count_exact: totalCharsForAnalytics,
+      output_char_count_bucket: bucketChars(outputCharsExact),
+      output_char_count_exact: outputCharsExact,
       duration_ms: Date.now() - runStartedAt,
     });
     // Single end-of-document notification. content.js suppressed the
@@ -360,9 +443,11 @@ async function startDocumentTranslation(docId, opts = {}) {
       currentStep: 'paused_unexpected_error',
     });
     self.analytics.capture('documents_translation_failed', {
-      run_id: runId,
-      file_type: doc.fileType || 'unknown',
-      error_type: classifyError(err),
+      ...runEventBase,
+      error_type: self.normalizeErrorType
+        ? self.normalizeErrorType(classifyError(err))
+        : classifyError(err),
+      batches_completed: batchesCompletedCount,
       batches_total: batches.length,
       duration_ms: Date.now() - runStartedAt,
     });

@@ -100,31 +100,39 @@
       .catch(() => null);
   }
 
-  // Keep in sync with bucketChars() in background.js.
-  function bucketChars(n) {
-    if (n < 500) return "0-500";
-    if (n < 2000) return "500-2k";
-    if (n < 5000) return "2k-5k";
-    if (n < 10000) return "5k-10k";
-    if (n < 25000) return "10k-25k";
-    return "25k+";
-  }
+  // bucketChars / bucketFileSize live in js/buckets.js (loaded as a
+  // separate script before track.js). They attach themselves to
+  // `self`/`window`, so callers reach them via window.bucketChars(...).
+  // We keep the same window.* surface here for backward-compatible
+  // access — if buckets.js ever fails to load, those references will
+  // be undefined and existing call sites already null-check via
+  // `if (window.bucketChars)`.
 
-  // File-size buckets for documents tab. Different domain from
-  // bucketChars (counts vs bytes), so kept as a separate function.
-  function bucketFileSize(bytes) {
-    const n = Number(bytes) || 0;
-    if (n < 1_000_000) return "<1MB";
-    if (n < 5_000_000) return "1-5MB";
-    if (n < 20_000_000) return "5-20MB";
-    return ">20MB";
+  // Fire `paywall_eligibility_check` for the upcoming user action.
+  // Wraps the SW round-trip so callers (popup.js / fullpage.js) don't
+  // open-code the message protocol. Fire-and-forget: we never await
+  // the SW response because the eligibility event is informational
+  // and the action that triggered it should not be delayed.
+  function firePaywallEligibilityCheck(surface, projectedChars, fileType) {
+    if (typeof chrome === "undefined" || !chrome.runtime || !chrome.runtime.id) {
+      return;
+    }
+    try {
+      chrome.runtime.sendMessage({
+        type: "analytics:paywallEligibilityCheck",
+        surface,
+        projectedChars,
+        fileType,
+      });
+    } catch (err) {
+      console.warn("[track] paywallEligibilityCheck send failed:", err);
+    }
   }
 
   if (typeof window !== "undefined") {
     window.trackEvent = trackEvent;
     window.getDistinctId = getDistinctId;
-    window.bucketChars = bucketChars;
-    window.bucketFileSize = bucketFileSize;
+    window.firePaywallEligibilityCheck = firePaywallEligibilityCheck;
     window.popupSessionId = function () {
       return POPUP_SESSION_ID;
     };
