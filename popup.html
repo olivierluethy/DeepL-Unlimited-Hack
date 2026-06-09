@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="de">
+<html lang="de" data-bs-theme="dark">
     <head>
         <meta charset="UTF-8" />
         <title>DeepL Pro Unlimited</title>
@@ -17,50 +17,236 @@
         <script src="js/doc-download.js" defer></script>
 
         <style>
+            /* ──────────────────────────────────────────────────────────────
+               Dark-mode-only design tokens. Single theme — no light styles.
+               ────────────────────────────────────────────────────────────── */
+            :root {
+                --bg-base: #15171c; /* page background */
+                --surface: #1e2128; /* elevated cards */
+                --surface-2: #262a33; /* hover / segmented track / code */
+                --surface-3: #313742; /* hover elevation */
+                --border: #2e333d; /* low-contrast divider */
+                --text: #e6e8ec; /* primary text */
+                --text-muted: #9aa1ad; /* secondary text */
+                --accent: #4d9bff; /* DeepL-ish blue accent */
+                --accent-strong: #2f86f0; /* accent hover/active */
+                --success: #34d399; /* completed / progress done */
+                --danger: #f1646c; /* delete / errors */
+                --warning: #e0a93b; /* paused */
+
+                /* spacing scale */
+                --space-1: 4px;
+                --space-2: 8px;
+                --space-3: 12px;
+                --space-4: 16px;
+                --radius: 10px;
+            }
+
+            /* Map Bootstrap 5.3 dark theme vars onto our tokens for cohesion */
+            [data-bs-theme="dark"] {
+                --bs-body-bg: var(--bg-base);
+                --bs-body-color: var(--text);
+                --bs-border-color: var(--border);
+                --bs-secondary-color: var(--text-muted);
+                --bs-tertiary-color: var(--text-muted);
+                --bs-card-bg: var(--surface);
+                --bs-card-border-color: var(--border);
+                --bs-tertiary-bg: var(--surface-2);
+                --bs-emphasis-color: var(--text);
+                --bs-heading-color: var(--text);
+            }
+
             body {
                 width: 600px;
                 padding: 20px;
                 font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+                background: var(--bg-base);
+                color: var(--text);
             }
+
             .input-group textarea {
                 resize: vertical;
                 min-height: 60px;
             }
-            .view-page-btn {
-                background: linear-gradient(135deg, #0d6efd, #6610f2);
-                color: #fff;
-                font-weight: 600;
-                border: none;
-                border-radius: 50px;
-                padding: 0.45rem 1.2rem;
+
+            /* ── App title accent ── */
+            .app-title {
+                color: var(--accent);
+                letter-spacing: 0.2px;
+            }
+
+            /* ── Primary accent buttons (Send, Upload CTA) ── */
+            .btn-primary {
+                --bs-btn-bg: var(--accent);
+                --bs-btn-border-color: var(--accent);
+                --bs-btn-hover-bg: var(--accent-strong);
+                --bs-btn-hover-border-color: var(--accent-strong);
+                --bs-btn-active-bg: var(--accent-strong);
+                --bs-btn-active-border-color: var(--accent-strong);
+                --bs-btn-disabled-bg: var(--accent);
+                --bs-btn-disabled-border-color: var(--accent);
+                --bs-btn-color: #fff;
+                --bs-btn-hover-color: #fff;
+                --bs-btn-active-color: #fff;
+                --bs-btn-disabled-color: #fff;
+            }
+            .btn-outline-primary {
+                --bs-btn-color: var(--accent);
+                --bs-btn-border-color: rgba(77, 155, 255, 0.55);
+                --bs-btn-hover-bg: var(--accent);
+                --bs-btn-hover-border-color: var(--accent);
+                --bs-btn-hover-color: #fff;
+                --bs-btn-active-bg: var(--accent-strong);
+                --bs-btn-active-border-color: var(--accent-strong);
+                --bs-btn-active-color: #fff;
+            }
+            .btn-outline-danger {
+                --bs-btn-color: var(--danger);
+                --bs-btn-border-color: rgba(241, 100, 108, 0.5);
+                --bs-btn-hover-bg: var(--danger);
+                --bs-btn-hover-border-color: var(--danger);
+                --bs-btn-hover-color: #fff;
+                --bs-btn-active-bg: var(--danger);
+                --bs-btn-active-border-color: var(--danger);
+                --bs-btn-active-color: #fff;
+            }
+            .btn {
                 transition:
-                    transform 0.2s,
-                    box-shadow 0.2s,
-                    filter 0.2s;
-                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-                font-size: 0.9rem;
+                    background-color 0.18s ease,
+                    border-color 0.18s ease,
+                    color 0.18s ease,
+                    box-shadow 0.18s ease;
             }
-
-            .view-page-btn:hover {
-                transform: translateY(-2px) scale(1.02);
-                box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
-                filter: brightness(1.1);
-            }
-
-            .view-page-btn:active {
-                transform: translateY(1px) scale(0.98);
-                box-shadow: 0 3px 6px rgba(0, 0, 0, 0.15);
-            }
-
-            .view-page-btn:focus {
+            .btn:focus-visible {
                 outline: none;
-                box-shadow: 0 0 0 4px rgba(13, 110, 253, 0.3);
+                box-shadow: 0 0 0 3px rgba(77, 155, 255, 0.35);
             }
+            .btn-outline-danger:focus-visible {
+                box-shadow: 0 0 0 3px rgba(241, 100, 108, 0.35);
+            }
+
+            /* ── Upload CTA (primary entry point to add a file) ── */
+            .upload-cta {
+                font-weight: 600;
+                padding: 10px 16px;
+                border-radius: var(--radius);
+                letter-spacing: 0.2px;
+            }
+            .upload-cta:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 6px 16px rgba(77, 155, 255, 0.3);
+            }
+            .upload-cta:active {
+                transform: translateY(0);
+            }
+            .upload-cta-help {
+                font-size: 0.75rem;
+                color: var(--text-muted);
+            }
+
+            /* ── Top nav: primary tab bar, underline active indicator ── */
+            #appTabs.nav-tabs {
+                border-bottom: 1px solid var(--border);
+                gap: 2px;
+            }
+            #appTabs .nav-link {
+                color: var(--text-muted);
+                border: none;
+                border-bottom: 2px solid transparent;
+                border-radius: 0;
+                padding: 8px 14px;
+                font-weight: 600;
+                background: transparent;
+                transition:
+                    color 0.18s ease,
+                    border-color 0.18s ease;
+            }
+            #appTabs .nav-link:hover {
+                color: var(--text);
+                border-bottom-color: var(--border);
+                isolation: isolate;
+            }
+            #appTabs .nav-link.active {
+                color: var(--accent);
+                background: transparent;
+                border-color: transparent;
+                border-bottom-color: var(--accent);
+            }
+
+            /* ── Documents sub-nav: segmented pill control (subordinate tier) ── */
+            .doc-subnav {
+                display: inline-flex;
+                gap: var(--space-1);
+                padding: 4px;
+                background: var(--surface-2);
+                border: 1px solid var(--border);
+                border-radius: var(--radius);
+            }
+            .doc-seg {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 5px 14px;
+                font-size: 0.8rem;
+                font-weight: 600;
+                color: var(--text-muted);
+                text-decoration: none;
+                border-radius: 7px;
+                cursor: pointer;
+                transition:
+                    background-color 0.18s ease,
+                    color 0.18s ease;
+            }
+            .doc-seg:hover {
+                color: var(--text);
+            }
+            .doc-seg.active {
+                background: var(--accent);
+                color: #fff;
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+            }
+
+            /* ── Cards / document rows ── */
+            .card {
+                background: var(--surface);
+                border: 1px solid var(--border);
+                border-radius: var(--radius);
+                transition:
+                    border-color 0.18s ease,
+                    box-shadow 0.18s ease;
+            }
+            .card.shadow-sm {
+                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important;
+            }
+            .pending-doc-row:hover,
+            #translatedDocsList .card:hover {
+                border-color: var(--surface-3);
+                box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45) !important;
+            }
+
+            /* ── Form controls ── */
+            .form-control {
+                background: var(--surface);
+                border-color: var(--border);
+                color: var(--text);
+            }
+            .form-control:focus {
+                background: var(--surface);
+                color: var(--text);
+                border-color: var(--accent);
+                box-shadow: 0 0 0 0.2rem rgba(77, 155, 255, 0.25);
+            }
+            .form-control::placeholder {
+                color: var(--text-muted);
+                opacity: 0.7;
+            }
+
+            /* ── History entry code blocks (override inline light colors) ── */
             .history-entry pre {
-                background-color: #f8f9fa;
-                border: 1px solid #e9ecef;
-                border-radius: 4px;
-                padding: 8px;
+                background: var(--surface-2) !important;
+                border: 1px solid var(--border) !important;
+                color: var(--text) !important;
+                border-radius: 6px;
                 font-size: 0.85rem;
                 white-space: pre-wrap;
                 word-wrap: break-word;
@@ -68,22 +254,82 @@
                 overflow-y: auto;
             }
 
-            /* Progress Bar Styles */
+            /* ── Progress bar ── */
+            .progress {
+                background: var(--surface-2);
+                border-radius: 6px;
+                overflow: hidden;
+            }
+            .progress-bar {
+                transition: width 0.3s ease;
+            }
+            .progress-bar.bg-primary {
+                background-color: var(--accent) !important;
+            }
+            .progress-bar.bg-success {
+                background-color: var(--success) !important;
+            }
+            .progress-bar.bg-danger {
+                background-color: var(--danger) !important;
+            }
+            .progress-bar.bg-warning {
+                background-color: var(--warning) !important;
+            }
             .progress-wrapper {
                 transition: opacity 0.3s ease;
             }
             .progress-wrapper.fade {
                 opacity: 0;
             }
-            .progress {
-                border-radius: 4px;
-                overflow: hidden;
+
+            /* ── Status text helpers ── */
+            .text-success {
+                color: var(--success) !important;
             }
-            .progress-bar {
-                transition: width 0.3s ease;
+            .text-danger {
+                color: var(--danger) !important;
+            }
+            .text-warning {
+                color: var(--warning) !important;
             }
 
-            /* Sub-input wrapper animation */
+            /* ── History multi-selection ── */
+            .history-entry.selected {
+                background-color: rgba(77, 155, 255, 0.12);
+                outline: 2px solid var(--accent);
+                outline-offset: -2px;
+                border-radius: 6px;
+            }
+            .history-select-cb {
+                width: 1.1em;
+                height: 1.1em;
+                cursor: pointer;
+                flex-shrink: 0;
+                accent-color: var(--accent);
+                margin-top: 5px;
+                align-self: flex-start;
+            }
+            #historyBulkBar {
+                position: sticky;
+                bottom: 0;
+                z-index: 10;
+                background: var(--surface);
+                border-top: 2px solid var(--accent);
+                padding: 7px 4px 5px;
+                margin-top: 6px;
+                border-radius: 0 0 4px 4px;
+                animation: slideIn 0.2s ease;
+            }
+
+            /* ── Inputs (sub-input) ── */
+            .sub-input:focus {
+                border-color: var(--accent);
+                box-shadow: 0 0 0 0.2rem rgba(77, 155, 255, 0.25);
+            }
+            .sub-input::placeholder {
+                color: var(--text-muted);
+                font-style: italic;
+            }
             .sub-input-wrapper {
                 transition:
                     opacity 0.3s ease,
@@ -97,8 +343,29 @@
                 opacity: 1;
                 transform: translateY(0);
             }
+            .actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 4px;
+            }
 
-            /* Entry animation */
+            /* ── Dark scrollbars ── */
+            .custom-scrollbar::-webkit-scrollbar,
+            body::-webkit-scrollbar {
+                width: 8px;
+                height: 8px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-thumb,
+            body::-webkit-scrollbar-thumb {
+                background: var(--surface-3);
+                border-radius: 4px;
+            }
+            .custom-scrollbar::-webkit-scrollbar-track,
+            body::-webkit-scrollbar-track {
+                background: transparent;
+            }
+
+            /* ── Animations ── */
             @keyframes fadeIn {
                 from {
                     opacity: 0;
@@ -109,7 +376,6 @@
                     transform: translateY(0);
                 }
             }
-
             @keyframes slideIn {
                 from {
                     opacity: 0;
@@ -120,96 +386,27 @@
                     transform: translateY(0);
                 }
             }
-
-            /* Toast notification */
             .custom-toast {
                 animation: slideIn 0.3s ease;
             }
 
-            /* Focus styles for inputs */
-            .sub-input:focus {
-                border-color: #0d6efd;
-                box-shadow: 0 0 0 0.2rem rgba(13, 110, 253, 0.25);
-            }
-
-            /* Responsive button groups */
-            .actions {
-                display: flex;
-                flex-wrap: wrap;
-                gap: 4px;
-            }
-
-            /* Placeholder styling */
-            .sub-input::placeholder {
-                color: #6c757d;
-                font-style: italic;
-            }
-
-            /* History multi-selection */
-            .history-entry.selected {
-                background-color: #e8f0fe;
-                outline: 2px solid #0d6efd;
-                outline-offset: -2px;
-                border-radius: 6px;
-            }
-            .history-select-cb {
-                width: 1.1em;
-                height: 1.1em;
-                cursor: pointer;
-                flex-shrink: 0;
-                accent-color: #0d6efd;
-                margin-top: 5px;
-                align-self: flex-start;
-            }
-            #historyBulkBar {
-                position: sticky;
-                bottom: 0;
-                z-index: 10;
-                background: #fff;
-                border-top: 2px solid #0d6efd;
-                padding: 7px 4px 5px;
-                margin-top: 6px;
-                border-radius: 0 0 4px 4px;
-                animation: slideIn 0.2s ease;
-            }
-            /* Discord highlight banner — gradient + glow can't be done with Bootstrap utilities */
-            .discord-banner {
-                background: linear-gradient(135deg, #5865f2, #7289ff);
-                transition:
-                    transform 0.25s ease,
-                    box-shadow 0.25s ease;
-                animation: discordPulse 2.5s infinite;
-            }
-            .discord-banner:hover {
-                transform: translateY(-2px);
-                box-shadow: 0 12px 30px rgba(88, 101, 242, 0.45) !important;
-            }
-            .discord-icon-box {
-                width: 52px;
-                height: 52px;
-                flex: 0 0 52px;
-            }
-            @keyframes discordPulse {
-                0%,
-                100% {
-                    box-shadow: 0 8px 25px rgba(88, 101, 242, 0.35);
-                }
-                50% {
-                    box-shadow:
-                        0 10px 28px rgba(88, 101, 242, 0.5),
-                        0 0 20px rgba(88, 101, 242, 0.35);
-                }
-            }
             @media (prefers-reduced-motion: reduce) {
-                .discord-banner {
-                    animation: none;
+                .btn,
+                .card,
+                .doc-seg,
+                #appTabs .nav-link,
+                .progress-bar {
+                    transition: none;
+                }
+                .upload-cta:hover {
+                    transform: none;
                 }
             }
         </style>
     </head>
     <body>
         <div class="d-flex justify-content-between align-items-center mb-4 pb-2 border-bottom">
-            <h2 class="text-primary mb-0 fw-bold">DeepL Pro Unlimited</h2>
+            <h2 class="app-title mb-0 fw-bold">DeepL Pro Unlimited</h2>
 
             <div class="d-flex gap-2">
                 <!-- Report Bug Button -->
@@ -261,29 +458,6 @@
                 </button>
             </div>
         </div>
-
-        <!-- Discord Highlight Banner -->
-        <a
-            id="discordBtn"
-            href="https://discord.gg/YknacSdbgg"
-            target="_blank"
-            rel="noopener noreferrer"
-            class="discord-banner d-flex align-items-center text-white text-decoration-none rounded-4 p-3 mb-4"
-            aria-label="Join our Discord Server"
-        >
-            <div
-                class="discord-icon-box d-flex align-items-center justify-content-center rounded-3 bg-white bg-opacity-25 me-3"
-            >
-                <i class="bi bi-discord fs-3"></i>
-            </div>
-
-            <div class="flex-grow-1">
-                <div class="fw-bold fs-6 lh-sm">Join our Discord Server</div>
-                <div class="small opacity-75">Updates • Support • Community</div>
-            </div>
-
-            <span class="badge rounded-pill bg-white fw-bold ms-2" style="color: #5865f2">LIVE</span>
-        </a>
 
         <!-- Tab Navigation -->
         <ul class="nav nav-tabs mb-3" id="appTabs" role="tablist">
@@ -504,7 +678,7 @@
                     <button
                         id="selectAllHistoryBtn"
                         class="btn btn-link btn-sm p-0 d-none"
-                        style="font-size: 0.8rem; color: #6c757d; text-decoration: none"
+                        style="font-size: 0.8rem; color: var(--text-muted); text-decoration: none"
                     >
                         Select all
                     </button>
@@ -549,35 +723,38 @@
 
             <!-- PDF Translation Page -->
             <div class="tab-pane fade" id="pdf" role="tabpanel">
-                <div class="text-center pb-3 px-2">
-                    <button id="openFullPageBtn" class="btn btn-outline-primary btn-sm">
-                        <i class="bi bi-box-arrow-up-right me-1"></i>Open Full Page
+                <div class="pb-3 px-2">
+                    <button
+                        id="openFullPageBtn"
+                        class="btn btn-primary upload-cta w-100 d-flex align-items-center justify-content-center gap-2"
+                        title="Open the upload page to add a new document to translate"
+                    >
+                        <i class="bi bi-cloud-arrow-up-fill fs-5"></i>
+                        <span>Upload New File</span>
                     </button>
+                    <div class="upload-cta-help text-center mt-2">Add a document to translate</div>
                 </div>
 
-                <!-- Sub-navigation: Uploaded (in-progress) · Translated (completed) -->
-                <ul class="nav nav-tabs mb-3" id="docSubTabs" role="tablist">
-                    <li class="nav-item">
-                        <a
-                            class="nav-link active"
-                            id="docs-uploaded-tab"
-                            data-bs-toggle="tab"
-                            href="#docs-uploaded"
-                            role="tab"
-                            ><i class="bi bi-cloud-arrow-up"></i> Uploaded</a
-                        >
-                    </li>
-                    <li class="nav-item">
-                        <a
-                            class="nav-link"
-                            id="docs-translated-tab"
-                            data-bs-toggle="tab"
-                            href="#docs-translated"
-                            role="tab"
-                            ><i class="bi bi-check2-circle"></i> Translated</a
-                        >
-                    </li>
-                </ul>
+                <!-- Sub-navigation: segmented filter (Uploaded · Translated),
+                     visually subordinate to the top tab bar -->
+                <div class="doc-subnav mb-3" id="docSubTabs" role="tablist">
+                    <a
+                        class="doc-seg active"
+                        id="docs-uploaded-tab"
+                        data-bs-toggle="tab"
+                        href="#docs-uploaded"
+                        role="tab"
+                        ><i class="bi bi-cloud-arrow-up"></i> Uploaded</a
+                    >
+                    <a
+                        class="doc-seg"
+                        id="docs-translated-tab"
+                        data-bs-toggle="tab"
+                        href="#docs-translated"
+                        role="tab"
+                        ><i class="bi bi-check2-circle"></i> Translated</a
+                    >
+                </div>
 
                 <div class="tab-content">
                     <!-- Uploaded: files uploading / in-progress / queued -->
@@ -587,7 +764,7 @@
                             <div id="pendingDocsList" class="mb-3"></div>
                             <div id="pendingDocsEmpty" class="text-center text-muted small py-3 d-none">
                                 <i class="bi bi-inbox fs-3 d-block mb-1 text-secondary"></i>
-                                No uploads waiting. Open the full page to add a PDF file.
+                                No uploads waiting. Use “Upload New File” to add a PDF.
                             </div>
                         </div>
                     </div>
