@@ -12,7 +12,9 @@
 
         <script src="js/jspdf.umd.min.js" defer></script>
         <script src="js/pdf.min.js" defer></script>
+        <script src="js/pdf-lib.min.js" defer></script>
         <script src="js/docx-utils.js" defer></script>
+        <script src="js/doc-download.js" defer></script>
 
         <style>
             body {
@@ -552,12 +554,54 @@
                         <i class="bi bi-box-arrow-up-right me-1"></i>Open Full Page
                     </button>
                 </div>
-                <div class="px-2 pt-3 pb-2">
-                    <!-- Pending uploads (rendered from chrome.storage.local.pendingDocuments) -->
-                    <div id="pendingDocsList" class="mb-3"></div>
-                    <div id="pendingDocsEmpty" class="text-center text-muted small py-3 d-none">
-                        <i class="bi bi-inbox fs-3 d-block mb-1 text-secondary"></i>
-                        No uploads waiting. Open the full page to add a PDF file.
+
+                <!-- Sub-navigation: Uploaded (in-progress) · Translated (completed) -->
+                <ul class="nav nav-tabs mb-3" id="docSubTabs" role="tablist">
+                    <li class="nav-item">
+                        <a
+                            class="nav-link active"
+                            id="docs-uploaded-tab"
+                            data-bs-toggle="tab"
+                            href="#docs-uploaded"
+                            role="tab"
+                            ><i class="bi bi-cloud-arrow-up"></i> Uploaded</a
+                        >
+                    </li>
+                    <li class="nav-item">
+                        <a
+                            class="nav-link"
+                            id="docs-translated-tab"
+                            data-bs-toggle="tab"
+                            href="#docs-translated"
+                            role="tab"
+                            ><i class="bi bi-check2-circle"></i> Translated</a
+                        >
+                    </li>
+                </ul>
+
+                <div class="tab-content">
+                    <!-- Uploaded: files uploading / in-progress / queued -->
+                    <div class="tab-pane fade show active" id="docs-uploaded" role="tabpanel">
+                        <div class="px-2 pt-1 pb-2">
+                            <!-- Pending uploads (rendered from chrome.storage.local.pendingDocuments) -->
+                            <div id="pendingDocsList" class="mb-3"></div>
+                            <div id="pendingDocsEmpty" class="text-center text-muted small py-3 d-none">
+                                <i class="bi bi-inbox fs-3 d-block mb-1 text-secondary"></i>
+                                No uploads waiting. Open the full page to add a PDF file.
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Translated: completed translations with download + delete -->
+                    <div class="tab-pane fade" id="docs-translated" role="tabpanel">
+                        <div class="px-2 pt-1 pb-2">
+                            <!-- Completed translations (rendered from chrome.storage.local.pdfHistory) -->
+                            <div id="translatedDocsList" class="mb-3"></div>
+                            <div id="translatedDocsEmpty" class="text-center text-muted small py-3 d-none">
+                                <i class="bi bi-file-earmark-check fs-3 d-block mb-1 text-secondary"></i>
+                                No translated documents yet.
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>

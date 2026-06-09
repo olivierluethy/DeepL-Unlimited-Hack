@@ -79,15 +79,6 @@
       }
       .spin { display: inline-block; animation: spin 1s linear infinite; }
 
-      /* History cards */
-      #pdfHistoryList .card {
-        border: 1px solid #e9ecef;
-        transition: box-shadow 0.15s;
-      }
-      #pdfHistoryList .card:hover {
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-      }
-
       /* Header accent */
       .page-header {
         background: linear-gradient(135deg, #0d6efd 0%, #6610f2 100%);
@@ -106,7 +97,7 @@
       <div class="page-header d-flex justify-content-between align-items-center">
         <div>
           <h1><i class="bi bi-file-earmark-text-fill me-2"></i>DeepL Document Translator</h1>
-          <p>Upload a PDF → Translate via DeepL → Download translated file</p>
+          <p>Upload a PDF → Start it from the extension popup → Download the result there</p>
         </div>
       </div>
 
@@ -193,25 +184,9 @@
           </div>
         </div>
       </div>
-
-      <!-- ── History Section ── -->
-      <div class="page-card" id="historySection">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-          <h5 class="fw-semibold mb-0">
-            <i class="bi bi-clock-history text-primary me-2"></i>Translation History
-          </h5>
-          <button id="clearHistoryBtn" class="btn btn-outline-danger btn-sm d-none">
-            <i class="bi bi-trash me-1"></i>Clear All
-          </button>
-        </div>
-        <div id="pdfHistoryList">
-          <p class="text-muted small">No translations yet.</p>
-        </div>
-      </div>
     </div>
 
     <script src="js/pdf.min.js"></script>
-    <script src="js/pdf-lib.min.js"></script>
     <script src="js/bootstrap.bundle.min.js"></script>
     <script src="js/buckets.js"></script>
     <script src="js/deepl-utils.js"></script>
