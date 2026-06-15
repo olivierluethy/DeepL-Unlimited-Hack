@@ -39,7 +39,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["lib/*", "js/*"],
+      "resources": ["lib/*", "js/*", "fonts/*"],
       "matches": ["<all_urls>"]
     }
   ]
