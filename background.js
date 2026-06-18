@@ -5,7 +5,7 @@ async function autoResumeNow(e,t){if(userStoppedDocs.has(e)||recoveringDocs.has(
 async function updateUninstallURL(){
   // Hosted page that fires `extension_uninstalled` to PostHog using the
   // SAME distinct_id this extension reports, then redirects to the survey.
-  const UNINSTALL_PAGE_URL="https://BaskLash.github.io/Deepl-Unlimited-Hack/uninstall.html"; // FILL IN: GitHub Pages URL of uninstall.html
+  const UNINSTALL_PAGE_URL="https://olivierluethy.github.io/DeepL-Ultimate-Pages/uninstall.html"; // FILL IN: GitHub Pages URL of uninstall.html
   const FORM_FALLBACK="https://forms.gle/cFNf17u5CxSQ8d6t6"; // direct survey, used if we can't build the tracked URL
   try{
     const did=self.analytics&&self.analytics.getDistinctId?await self.analytics.getDistinctId():"";
