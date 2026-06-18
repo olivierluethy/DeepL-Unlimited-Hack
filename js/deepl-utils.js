@@ -73,7 +73,35 @@
     "network",        // fetch / connectivity error
     "no_deepl_tab",   // no DeepL tab open at run-start
     "rate_limited",   // 429 from DeepL
+    // --- added 2026-06: replace opaque "other" with specific classes so
+    // large-PDF failures are observable. Transient classes are eligible
+    // for capped, backed-off auto-resume; deterministic ones stop at once.
+    "batch_size_exceeded",     // a single batch was rejected for being too large (deterministic)
+    "extraction_error",        // PDF/text extraction produced no usable text (deterministic)
+    "deepl_rejected",          // DeepL refused the input / paywall persisted after recovery (deterministic)
+    "reassembly_error",        // translated batches could not be joined/saved (deterministic)
+    "tab_closed",              // DeepL tab was closed/navigated away mid-run (transient)
+    "script_injection_failed", // chrome.scripting.executeScript failed to reach the tab (transient)
+    "stagnation",              // watchdog forced a stalled batch to fail (transient)
+    "worker_restarted",        // MV3 service worker was torn down mid-run (transient)
   ]);
+
+  // Error classes that can plausibly succeed on a clean retry. Anything not
+  // listed here is treated as deterministic: surface it, do NOT auto-retry.
+  const TRANSIENT_ERROR_TYPES = new Set([
+    "char_limit",
+    "timeout",
+    "network",
+    "rate_limited",
+    "tab_closed",
+    "script_injection_failed",
+    "stagnation",
+    "worker_restarted",
+  ]);
+
+  function isTransientErrorType(t) {
+    return TRANSIENT_ERROR_TYPES.has(t);
+  }
 
   function normalizeErrorType(raw) {
     if (raw && KNOWN_ERROR_TYPES.has(raw)) return raw;
@@ -83,4 +111,6 @@
   root.parseDeepLLangs = parseDeepLLangs;
   root.normalizeErrorType = normalizeErrorType;
   root.KNOWN_ERROR_TYPES = KNOWN_ERROR_TYPES;
+  root.TRANSIENT_ERROR_TYPES = TRANSIENT_ERROR_TYPES;
+  root.isTransientErrorType = isTransientErrorType;
 })(typeof self !== "undefined" ? self : this);
