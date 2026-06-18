@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>DeepL Pro Unlimited — Uninstalled</title>
+    <style>
+      :root {
+        --bg: #15171c;
+        --surface: #1e2128;
+        --text: #e6e8ec;
+        --muted: #9aa1ad;
+        --accent: #4d9bff;
+        --border: #2e333d;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        max-width: 460px;
+        width: 100%;
+        padding: 36px 32px;
+        text-align: center;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
+      }
+      h1 { font-size: 1.35rem; margin: 0 0 8px; color: var(--accent); }
+      p { color: var(--muted); font-size: 0.95rem; line-height: 1.5; margin: 8px 0 0; }
+      .spinner {
+        width: 38px; height: 38px;
+        margin: 6px auto 18px;
+        border: 3px solid var(--border);
+        border-top-color: var(--accent);
+        border-radius: 50%;
+        animation: spin 0.9s linear infinite;
+      }
+      .fallback { margin-top: 22px; font-size: 0.85rem; }
+      .fallback a { color: var(--accent); }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .spinner { animation: none; } }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="spinner" aria-hidden="true"></div>
+      <h1>Thanks — one quick question…</h1>
+      <p>You just uninstalled DeepL Pro Unlimited. We're taking you to a 30-second survey so we can improve.</p>
+      <p class="fallback">Not redirected? <a id="manualLink" href="#">Open the survey</a>.</p>
+    </div>
+
+    <script>
+      (function () {
+        "use strict";
+
+        // ─────────────────────────────────────────────────────────────
+        // CONFIG — verify before publishing. The PostHog values are the
+        // project's PUBLIC ingestion key + host (safe in a public repo);
+        // the survey URL is where the user lands after the ping.
+        // ─────────────────────────────────────────────────────────────
+        var POSTHOG_KEY = "phc_vdh5V2RdTvv78E778stRjmNqXf7LNwEEhPhHteafYvLG"; // FILL IN / VERIFY: PostHog PUBLIC project API key (write-only). NEVER a personal/private key.
+        var POSTHOG_HOST = "https://eu.i.posthog.com"; // FILL IN / VERIFY: PostHog host (region)
+        var SURVEY_URL = "https://forms.gle/cFNf17u5CxSQ8d6t6"; // FILL IN: Google Form (uninstall survey)
+        var MAX_WAIT_MS = 1500; // hard ceiling — never strand the user if ingestion is slow
+
+        document.getElementById("manualLink").setAttribute("href", SURVEY_URL);
+
+        function param(name) {
+          try { return new URLSearchParams(location.search).get(name) || ""; }
+          catch (e) { return ""; }
+        }
+        function intOrNull(s) { var n = parseInt(s, 10); return isNaN(n) ? null : n; }
+
+        // The whole point: reuse the EXACT distinct_id the extension reported,
+        // so this event stitches onto that user's prior event history.
+        var distinctId = param("d");
+        var version = param("v");
+        var mainCompleted = intOrNull(param("mc"));
+        var docsCompleted = intOrNull(param("dc"));
+
+        var redirected = false;
+        function redirect() {
+          if (redirected) return;
+          redirected = true;
+          location.replace(SURVEY_URL);
+        }
+        // Guaranteed redirect, even if PostHog is blocked or slow.
+        var timer = setTimeout(redirect, MAX_WAIT_MS);
+
+        function fireUninstallEvent() {
+          if (!distinctId) return false; // can't stitch without it — still redirect via timer
+
+          var payload = {
+            api_key: POSTHOG_KEY,
+            event: "extension_uninstalled",
+            distinct_id: distinctId,
+            properties: {
+              distinct_id: distinctId,
+              extension_version: version || "unknown",
+              main_translations_completed: mainCompleted,
+              documents_completed: docsCompleted,
+              $lib: "uninstall-page",
+              browser_language: navigator.language,
+              $current_url: location.href
+            },
+            timestamp: new Date().toISOString()
+          };
+
+          var endpoint = POSTHOG_HOST.replace(/\/+$/, "") + "/e/";
+          var body = JSON.stringify(payload);
+
+          // Preferred: sendBeacon — queued synchronously, survives navigation.
+          try {
+            if (navigator.sendBeacon &&
+                navigator.sendBeacon(endpoint, new Blob([body], { type: "application/json" }))) {
+              return true;
+            }
+          } catch (e) { /* fall through */ }
+
+          // Fallback: keepalive fetch (also survives navigation).
+          try {
+            fetch(endpoint, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: body,
+              keepalive: true,
+              mode: "no-cors"
+            }).then(function () {
+              clearTimeout(timer);
+              setTimeout(redirect, 200);
+            }).catch(function () { /* timer handles it */ });
+            return true;
+          } catch (e) { return false; }
+        }
+
+        var sent = fireUninstallEvent();
+        if (sent) {
+          // Event is on its way; show the screen briefly, then go.
+          clearTimeout(timer);
+          setTimeout(redirect, 600);
+        }
+        // If !sent (e.g. missing distinct_id), MAX_WAIT_MS timer still redirects.
+      })();
+    </script>
+  </body>
+</html>
