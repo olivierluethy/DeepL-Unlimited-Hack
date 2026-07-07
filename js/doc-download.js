@@ -374,6 +374,52 @@ async function createTranslatedPDF(filename, translatedText, layout) {
     return { bytes, report };
 }
 
+function base64ToBytes(b64) {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+}
+
+// Produce the converted PDF. Preferred path: keep the ORIGINAL PDF as the base
+// and only replace its text (layout-preserving overlay). Falls back to the
+// legacy blank rebuild only when no original/blocks are available (e.g. old
+// history entries). Returns { bytes, report }.
+async function createOutputPDF(filename, translatedText, layout, originalB64) {
+    const canOverlay =
+        originalB64 &&
+        layout &&
+        layout.version >= 2 &&
+        !layout.storeFailed &&
+        Array.isArray(layout.blocks) &&
+        layout.blocks.length > 0 &&
+        window.pdfOverlay &&
+        typeof window.pdfOverlay.buildOverlayPDF === "function";
+
+    if (canOverlay) {
+        if (!window.fontkit) throw new Error("fontkit is not loaded");
+        const fontBytes = await loadCJKFontBytes();
+        const { bytes, report } = await window.pdfOverlay.buildOverlayPDF(
+            PDFLib,
+            window.fontkit,
+            fontBytes,
+            base64ToBytes(originalB64),
+            translatedText,
+            layout
+        );
+        return { bytes, report };
+    }
+
+    // Fallback: no original document to edit in place.
+    const { bytes, report } = await createTranslatedPDF(filename, translatedText, layout);
+    if (report && report.mode === "text" && layout && layout.blocks && layout.blocks.length) {
+        report.warnings = report.warnings || [];
+        report.warnings.unshift("Original PDF was not available, so the layout could not be preserved (text-only output).");
+        report.ok = false;
+    }
+    return { bytes, report };
+}
+
 function triggerPdfDownload(bytes, filename) {
     const blob = new Blob([bytes], { type: "application/pdf" });
     const url = URL.createObjectURL(blob);
@@ -385,5 +431,5 @@ function triggerPdfDownload(bytes, filename) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { splitTranslationIntoPages, dataUrlToBytes, createTranslatedPDF };
+    module.exports = { splitTranslationIntoPages, dataUrlToBytes, base64ToBytes, createTranslatedPDF };
 }

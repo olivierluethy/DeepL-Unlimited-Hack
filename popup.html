@@ -14,6 +14,7 @@
         <script src="js/pdf.min.js" defer></script>
         <script src="js/pdf-lib.min.js" defer></script>
         <script src="js/fontkit.umd.min.js" defer></script>
+        <script src="js/pdf-overlay.js" defer></script>
         <script src="js/docx-utils.js" defer></script>
         <script src="js/doc-download.js" defer></script>
 
@@ -780,6 +781,35 @@
                                 No translated documents yet.
                             </div>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Converted-PDF inline preview -->
+        <div class="modal fade" id="pdfPreviewModal" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-lg modal-dialog-scrollable">
+                <div class="modal-content">
+                    <div class="modal-header py-2">
+                        <h6 class="modal-title mb-0">
+                            <i class="bi bi-eye me-1"></i><span id="pdfPreviewTitle">Preview</span>
+                        </h6>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body p-2" style="background:#20232a;">
+                        <div id="pdfPreviewAlert"></div>
+                        <div id="pdfPreviewStatus" class="text-center text-muted small py-4">
+                            <span class="spinner-border spinner-border-sm me-2"></span>Rendering preview…
+                        </div>
+                        <div id="pdfPreviewPages" class="d-flex flex-column align-items-center gap-2"></div>
+                    </div>
+                    <div class="modal-footer py-2">
+                        <button type="button" class="btn btn-sm btn-outline-warning" id="pdfPreviewRefine">
+                            <i class="bi bi-arrow-clockwise me-1"></i>Refine (re-run)
+                        </button>
+                        <button type="button" class="btn btn-sm btn-primary" id="pdfPreviewDownload">
+                            <i class="bi bi-download me-1"></i>Download
+                        </button>
                     </div>
                 </div>
             </div>
