@@ -410,11 +410,15 @@ async function createOutputPDF(filename, translatedText, layout, originalB64) {
         return { bytes, report };
     }
 
-    // Fallback: no original document to edit in place.
-    const { bytes, report } = await createTranslatedPDF(filename, translatedText, layout);
-    if (report && report.mode === "text" && layout && layout.blocks && layout.blocks.length) {
+    // Fallback: no original document to edit in place. A v2 (overlay) layout is
+    // useless without the original bytes, so force a plain text document and
+    // flag clearly that the layout could not be preserved. Legacy v1 image
+    // layouts still go through the image rebuild.
+    const overlayLayout = layout && layout.version >= 2;
+    const { bytes, report } = await createTranslatedPDF(filename, translatedText, overlayLayout ? null : layout);
+    if (overlayLayout || (report.mode === "text" && layout && layout.blocks && layout.blocks.length)) {
         report.warnings = report.warnings || [];
-        report.warnings.unshift("Original PDF was not available, so the layout could not be preserved (text-only output).");
+        report.warnings.unshift("Original PDF was not available, so the layout could not be preserved (text-only output). Re-upload the PDF to preserve its layout.");
         report.ok = false;
     }
     return { bytes, report };
@@ -431,5 +435,5 @@ function triggerPdfDownload(bytes, filename) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { splitTranslationIntoPages, dataUrlToBytes, base64ToBytes, createTranslatedPDF };
+    module.exports = { splitTranslationIntoPages, dataUrlToBytes, base64ToBytes, createTranslatedPDF, createOutputPDF };
 }
