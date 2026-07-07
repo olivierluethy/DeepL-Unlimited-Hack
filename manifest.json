@@ -3,7 +3,7 @@
   "name": "DeepL Pro Unlimited – Long Texts Without Limits",
   "version": "1.1.5",
   "description": "Translate unlimited long texts with DeepL. Automatically split content into blocks, batch translate, and download results.",
-  "permissions": ["scripting", "downloads", "storage", "clipboardRead", "cookies", "tabs", "alarms"],
+  "permissions": ["scripting", "downloads", "storage", "unlimitedStorage", "clipboardRead", "cookies", "tabs", "alarms"],
   "action": {
     "default_popup": "popup.html",
     "default_icon": {
