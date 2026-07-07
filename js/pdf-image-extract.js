@@ -164,10 +164,13 @@
                 continue;
             }
 
-            const baseViewport = page.getViewport({ scale: 1 });
-            const pageWidth = baseViewport.width;
-            const pageHeight = baseViewport.height;
-            const rotation = baseViewport.rotation || 0;
+            // Unrotated media-box dimensions — these match the coordinate
+            // space of the operator-list CTM (and pdf-lib's page space).
+            // Rotation is carried separately and re-applied at generation.
+            const view = page.view; // [x0, y0, x1, y1]
+            const pageWidth = view[2] - view[0];
+            const pageHeight = view[3] - view[1];
+            const rotation = ((page.rotate || 0) % 360 + 360) % 360;
 
             // Text (same normalisation the pipeline already used: collapse
             // whitespace, one block per page).
