@@ -91,6 +91,38 @@
 
             <hr class="my-4" />
 
+            <h2 class="h5 fw-semibold mb-2">
+                <i class="bi bi-file-earmark-pdf me-1"></i>Layout-preserving document translation
+            </h2>
+            <p class="small text-muted mb-2">
+                Optional. Paste a DeepL API key to translate whole PDFs while keeping the original layout, columns,
+                fonts, and images intact (via DeepL's document translation). A free API key works and is separate from
+                your normal DeepL login. Leave empty to use the built-in in-place text overlay instead.
+            </p>
+            <div class="mb-2">
+                <label for="deeplApiKey" class="form-label small mb-1">DeepL API key</label>
+                <div class="input-group">
+                    <input
+                        type="password"
+                        class="form-control"
+                        id="deeplApiKey"
+                        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx:fx"
+                        autocomplete="off"
+                        spellcheck="false"
+                    />
+                    <button class="btn btn-outline-secondary" type="button" id="toggleApiKey" title="Show / hide">
+                        <i class="bi bi-eye"></i>
+                    </button>
+                    <button class="btn btn-primary" type="button" id="saveApiKey">Save</button>
+                </div>
+                <div class="form-text small">
+                    Keys ending in <code>:fx</code> use the free endpoint automatically. Stored only on this device.
+                </div>
+            </div>
+            <div id="apiKeyStatus" class="small mb-3" aria-live="polite"></div>
+
+            <hr class="my-4" />
+
             <h2 class="h6 fw-semibold mb-2">
                 <i class="bi bi-fingerprint me-1"></i>Your anonymous ID
             </h2>

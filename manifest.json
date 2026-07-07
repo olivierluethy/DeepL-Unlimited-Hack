@@ -33,7 +33,7 @@
       "run_at": "document_idle"
     }
   ],
-  "host_permissions": ["*://www.deepl.com/*", "https://eu.i.posthog.com/*"],
+  "host_permissions": ["*://www.deepl.com/*", "https://eu.i.posthog.com/*", "https://api-free.deepl.com/*", "https://api.deepl.com/*"],
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
