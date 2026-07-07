@@ -385,5 +385,5 @@ function triggerPdfDownload(bytes, filename) {
 }
 
 if (typeof module !== "undefined" && module.exports) {
-    module.exports = { splitTranslationIntoPages, dataUrlToBytes };
+    module.exports = { splitTranslationIntoPages, dataUrlToBytes, createTranslatedPDF };
 }
